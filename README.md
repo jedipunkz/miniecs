@@ -29,6 +29,12 @@ $ miniecs exec --cluster <cluster-name> --container <container-name> --command <
 | --container | Container Name   | YES      |
 | --command   | Command          | YES      |
 
+## Reference
+
+This code's internal pkg is based on the aws copilot-cli code (Apache License 2.0)
+
+https://github.com/aws/copilot-cli
+
 ## License
 
 [Apache License 2.0](https://github.com/jedipunkz/awscreds/blob/main/LICENSE)
