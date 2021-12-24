@@ -1,6 +1,6 @@
 # miniecs
 
-miniecs is a CLI tool for AWS ECS.
+🥝 miniecs is a CLI tool for AWS ECS. 🥝
 
 [![GitHub Workflow Status](https://img.shields.io/github/workflow/status/jedipunkz/miniecs/Go-CI?style=flat-square)](https://github.com/jedipunkz/miniecs/actions?query=workflow%3AGo-CI)
 
@@ -9,7 +9,7 @@ miniecs is a CLI tool for AWS ECS.
 
 - go 1.17.x or later
 
-## Installation
+## �Installation
 
 ```shell
 go install github.com/jedipunkz/miniecs@latest
