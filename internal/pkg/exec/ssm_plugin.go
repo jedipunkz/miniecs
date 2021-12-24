@@ -5,7 +5,6 @@
 package exec
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -25,12 +24,6 @@ type SSMPluginCommand struct {
 	sess *session.Session
 	runner
 	http httpClient
-
-	// facilitate unit test.
-	latestVersionBuffer    bytes.Buffer
-	currentVersionBuffer   bytes.Buffer
-	linuxDistVersionBuffer bytes.Buffer
-	tempDir                string
 }
 
 // NewSSMPluginCommand returns a SSMPluginCommand.
