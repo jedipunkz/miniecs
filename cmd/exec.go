@@ -70,9 +70,8 @@ func (e *ErrGetTask) Error() string {
 }
 
 // new returns a Service configured against the input session.
-func new(s *session.Session) *ECS {
+func new(s *session.Session, err error) *ECS {
 	return &ECS{
-		// client: ecs.New(s),
 		client: ecs.New(s),
 		newSessStarter: func() ssmSessionStarter {
 			return exec.NewSSMPluginCommand(s)
@@ -119,8 +118,7 @@ var execCmd = &cobra.Command{
 	Long: `a subcommand for ecs execute to login ecs container on task.
 with parameters where ecs cluster, container name and command.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		e := new(session.New())
-		// e := new(session.NewSession(sess, aws.NewConfig().WithRegion("ap-northeast-1")))
+		e := new(session.NewSession())
 		task, err := e.getTask("commandexec", "commandexec")
 		if err != nil {
 			log.Fatal(err)
