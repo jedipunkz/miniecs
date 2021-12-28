@@ -33,21 +33,8 @@ type ECS struct {
 	client         api
 	newSessStarter func() ssmSessionStarter
 
-	clusters []string
-	services []string
-
 	maxServiceStableTries int
 	pollIntervalDuration  time.Duration
-}
-
-// ErrExecuteCommand occurs when ecs:ExecuteCommand fails.
-type ErrExecuteCommand struct {
-	err error
-}
-
-// ErrGetTask is
-type ErrGetTask struct {
-	err error
 }
 
 // ExecuteCommandInput holds the fields needed to execute commands in a running container.
@@ -56,16 +43,6 @@ type ExecuteCommandInput struct {
 	Command   string
 	Task      string
 	Container string
-}
-
-// Error is printing execute command err
-func (e *ErrExecuteCommand) Error() string {
-	return fmt.Sprintf("execute command: %s", e.err.Error())
-}
-
-// Error is printing get task command err
-func (e *ErrGetTask) Error() string {
-	return fmt.Sprintf("get task command: %s", e.err.Error())
 }
 
 // NewEcs returns a Service configured against the input session.
@@ -100,7 +77,7 @@ func (e *ECS) ExecuteCommand(in ExecuteCommandInput) (err error) {
 }
 
 // GetTask is
-func (e *ECS) GetTask(cluster, family string) (result *ecs.ListTasksOutput, err error) {
+func (e *ECS) GetTask(cluster, family string) (*ecs.ListTasksOutput, error) {
 	getTaskCmdresp, err := e.client.ListTasks(&ecs.ListTasksInput{
 		Cluster: aws.String(cluster),
 		Family:  aws.String(family),
@@ -115,7 +92,7 @@ func (e *ECS) GetTask(cluster, family string) (result *ecs.ListTasksOutput, err 
 func (e *ECS) GetClusters() ([]string, error) {
 	resultClusters, err := e.client.ListClusters(&ecs.ListClustersInput{})
 	if err != nil {
-		return nil, err
+		return nil, &ErrListClusters{err: err}
 	}
 
 	var c []string
@@ -134,7 +111,7 @@ func (e *ECS) GetServices(cluster string) ([]string, error) {
 	resultServices, err := e.client.ListServices(inputService)
 	if err != nil {
 		log.Fatal(err)
-		return nil, err
+		return nil, &ErrListServices{err: err}
 	}
 	var s []string
 	for _, service := range resultServices.ServiceArns {
