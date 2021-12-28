@@ -2,12 +2,14 @@ package ecs
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/jedipunkz/miniecs/internal/pkg/exec"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -18,6 +20,8 @@ const (
 type api interface {
 	ExecuteCommand(input *ecs.ExecuteCommandInput) (*ecs.ExecuteCommandOutput, error)
 	ListTasks(input *ecs.ListTasksInput) (*ecs.ListTasksOutput, error)
+	ListClusters(input *ecs.ListClustersInput) (*ecs.ListClustersOutput, error)
+	ListServices(input *ecs.ListServicesInput) (*ecs.ListServicesOutput, error)
 }
 
 type ssmSessionStarter interface {
@@ -33,32 +37,12 @@ type ECS struct {
 	pollIntervalDuration  time.Duration
 }
 
-// ErrExecuteCommand occurs when ecs:ExecuteCommand fails.
-type ErrExecuteCommand struct {
-	err error
-}
-
-// ErrGetTask is
-type ErrGetTask struct {
-	err error
-}
-
 // ExecuteCommandInput holds the fields needed to execute commands in a running container.
 type ExecuteCommandInput struct {
 	Cluster   string
 	Command   string
 	Task      string
 	Container string
-}
-
-// Error is printing execute command err
-func (e *ErrExecuteCommand) Error() string {
-	return fmt.Sprintf("execute command: %s", e.err.Error())
-}
-
-// Error is printing get task command err
-func (e *ErrGetTask) Error() string {
-	return fmt.Sprintf("get task command: %s", e.err.Error())
 }
 
 // NewEcs returns a Service configured against the input session.
@@ -93,7 +77,7 @@ func (e *ECS) ExecuteCommand(in ExecuteCommandInput) (err error) {
 }
 
 // GetTask is
-func (e *ECS) GetTask(cluster, family string) (result *ecs.ListTasksOutput, err error) {
+func (e *ECS) GetTask(cluster, family string) (*ecs.ListTasksOutput, error) {
 	getTaskCmdresp, err := e.client.ListTasks(&ecs.ListTasksInput{
 		Cluster: aws.String(cluster),
 		Family:  aws.String(family),
@@ -102,4 +86,37 @@ func (e *ECS) GetTask(cluster, family string) (result *ecs.ListTasksOutput, err 
 		return nil, &ErrGetTask{err: err}
 	}
 	return getTaskCmdresp, nil
+}
+
+// GetClusters is function to get list clusters
+func (e *ECS) GetClusters() ([]string, error) {
+	resultClusters, err := e.client.ListClusters(&ecs.ListClustersInput{})
+	if err != nil {
+		return nil, &ErrListClusters{err: err}
+	}
+
+	var c []string
+	for _, cluster := range resultClusters.ClusterArns {
+		clusterArr := strings.Split(*cluster, "/")
+		c = append(c, clusterArr[len(clusterArr)-1])
+	}
+	return c, nil
+}
+
+// GetServices is function to get list services
+func (e *ECS) GetServices(cluster string) ([]string, error) {
+	inputService := &ecs.ListServicesInput{
+		Cluster: aws.String(cluster),
+	}
+	resultServices, err := e.client.ListServices(inputService)
+	if err != nil {
+		log.Fatal(err)
+		return nil, &ErrListServices{err: err}
+	}
+	var s []string
+	for _, service := range resultServices.ServiceArns {
+		serviceArr := strings.Split(*service, "/")
+		s = append(s, serviceArr[len(serviceArr)-1])
+	}
+	return s, nil
 }

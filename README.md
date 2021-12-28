@@ -17,17 +17,25 @@ go install github.com/jedipunkz/miniecs@latest
 
 ## Usage
 
+### Execute
+
 ```shell
 $ miniecs exec --cluster <cluster-name> --container <container-name> --command <command>
 ```
 
-### Options
+#### Options
 
 | Option      | Explanation      | Required |
 |-------------|------------------|----------|
 | --cluster   | ECS Cluster Name | YES      |
 | --container | Container Name   | YES      |
 | --command   | Command          | YES      |
+
+### List
+
+```shell
+$ miniecs list
+```
 
 ## Reference
 
