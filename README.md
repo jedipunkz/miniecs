@@ -9,7 +9,7 @@
 
 - go 1.17.x or later
 
-## �Installation
+## Installation
 
 ```shell
 go install github.com/jedipunkz/miniecs@latest
@@ -17,7 +17,7 @@ go install github.com/jedipunkz/miniecs@latest
 
 ## Usage
 
-### Execute
+### Execute Command
 
 ```shell
 $ miniecs exec --cluster <cluster-name> --container <container-name> --command <command>
@@ -31,7 +31,7 @@ $ miniecs exec --cluster <cluster-name> --container <container-name> --command <
 | --container | Container Name   | YES      |
 | --command   | Command          | YES      |
 
-### List
+### List Command
 
 ```shell
 $ miniecs list
