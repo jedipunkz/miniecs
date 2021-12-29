@@ -80,7 +80,7 @@ func (e *ECS) ExecuteCommand(in ExecuteCommandInput) (err error) {
 	return err
 }
 
-// GetTask is
+// GetTask to get ECS task family
 func (e *ECS) GetTask(cluster, family string) error {
 	getTaskCmdresp, err := e.client.ListTasks(&ecs.ListTasksInput{
 		Cluster: aws.String(cluster),
@@ -93,7 +93,7 @@ func (e *ECS) GetTask(cluster, family string) error {
 	return nil
 }
 
-// GetClusters is function to get list clusters
+// GetClusters is function to get list of clusters
 func (e *ECS) GetClusters() error {
 	resultClusters, err := e.client.ListClusters(&ecs.ListClustersInput{})
 	if err != nil {
@@ -109,7 +109,7 @@ func (e *ECS) GetClusters() error {
 	return nil
 }
 
-// GetServices is function to get list services
+// GetServices is function to get list of services
 func (e *ECS) GetServices(cluster string) error {
 	inputService := &ecs.ListServicesInput{Cluster: aws.String(cluster)}
 	resultServices, err := e.client.ListServices(inputService)
