@@ -20,16 +20,20 @@ go install github.com/jedipunkz/miniecs@latest
 ### Execute Command
 
 ```shell
-$ miniecs exec --cluster <cluster-name> --container <container-name> --command <command>
+$ miniecs exec --cluster <cluster-name> \
+    --family <task-family-name> \
+    --container <container-name> \
+    --command <command>
 ```
 
 #### Options
 
-| Option      | Explanation      | Required |
-|-------------|------------------|----------|
-| --cluster   | ECS Cluster Name | YES      |
-| --container | Container Name   | YES      |
-| --command   | Command          | YES      |
+| Option      | Explanation          | Required |
+|-------------|----------------------|----------|
+| --cluster   | ECS Cluster Name     | YES      |
+| --family    | ECS Task Family Name | YES      |
+| --container | Container Name       | YES      |
+| --command   | Command              | YES      |
 
 ### List Command
 
