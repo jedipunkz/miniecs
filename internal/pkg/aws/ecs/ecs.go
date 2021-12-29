@@ -33,6 +33,10 @@ type ECS struct {
 	client         api
 	newSessStarter func() ssmSessionStarter
 
+	Clusters []string
+	Services []string
+	Task     *ecs.ListTasksOutput
+
 	maxServiceStableTries int
 	pollIntervalDuration  time.Duration
 }
@@ -76,23 +80,24 @@ func (e *ECS) ExecuteCommand(in ExecuteCommandInput) (err error) {
 	return err
 }
 
-// GetTask is
-func (e *ECS) GetTask(cluster, family string) (*ecs.ListTasksOutput, error) {
+// GetTask to get ECS task family
+func (e *ECS) GetTask(cluster, family string) error {
 	getTaskCmdresp, err := e.client.ListTasks(&ecs.ListTasksInput{
 		Cluster: aws.String(cluster),
 		Family:  aws.String(family),
 	})
 	if err != nil {
-		return nil, &ErrGetTask{err: err}
+		return &ErrGetTask{err: err}
 	}
-	return getTaskCmdresp, nil
+	e.Task = getTaskCmdresp
+	return nil
 }
 
-// GetClusters is function to get list clusters
-func (e *ECS) GetClusters() ([]string, error) {
+// GetClusters is function to get list of clusters
+func (e *ECS) GetClusters() error {
 	resultClusters, err := e.client.ListClusters(&ecs.ListClustersInput{})
 	if err != nil {
-		return nil, &ErrListClusters{err: err}
+		return &ErrListClusters{err: err}
 	}
 
 	var c []string
@@ -100,23 +105,24 @@ func (e *ECS) GetClusters() ([]string, error) {
 		clusterArr := strings.Split(*cluster, "/")
 		c = append(c, clusterArr[len(clusterArr)-1])
 	}
-	return c, nil
+	e.Clusters = c
+	return nil
 }
 
-// GetServices is function to get list services
-func (e *ECS) GetServices(cluster string) ([]string, error) {
-	inputService := &ecs.ListServicesInput{
-		Cluster: aws.String(cluster),
-	}
+// GetServices is function to get list of services
+func (e *ECS) GetServices(cluster string) error {
+	inputService := &ecs.ListServicesInput{Cluster: aws.String(cluster)}
 	resultServices, err := e.client.ListServices(inputService)
 	if err != nil {
 		log.Fatal(err)
-		return nil, &ErrListServices{err: err}
+		return &ErrListServices{err: err}
 	}
+
 	var s []string
 	for _, service := range resultServices.ServiceArns {
 		serviceArr := strings.Split(*service, "/")
 		s = append(s, serviceArr[len(serviceArr)-1])
 	}
-	return s, nil
+	e.Services = s
+	return nil
 }

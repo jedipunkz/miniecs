@@ -17,19 +17,17 @@ var listCmd = &cobra.Command{
 	Short: "list subcommand",
 	Run: func(cmd *cobra.Command, args []string) {
 		e := myecs.NewEcs(session.NewSession())
-		clusters, err := e.GetClusters()
-		if err != nil {
+		if err := e.GetClusters(); err != nil {
 			log.Fatal(err)
 		}
 
 		var ecsMatrix [][]string
 
-		for _, cluster := range clusters {
-			services, err := e.GetServices(cluster)
-			if err != nil {
+		for _, cluster := range e.Clusters {
+			if err := e.GetServices(cluster); err != nil {
 				log.Fatal(err)
 			}
-			for _, service := range services {
+			for _, service := range e.Services {
 				ecsMatrix = append(ecsMatrix, []string{cluster, service})
 			}
 		}
