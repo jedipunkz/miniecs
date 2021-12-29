@@ -26,14 +26,12 @@ with parameters where ecs cluster, container name and command.`,
 		in := myecs.ExecuteCommandInput{}
 		in.Cluster = setFlags.cluster
 		in.Container = setFlags.container
-		task, err := e.GetTask(setFlags.cluster, setFlags.family)
-		if err != nil {
+		if err := e.GetTask(setFlags.cluster, setFlags.family); err != nil {
 			log.Fatal(err)
 		}
-		in.Task = *task.TaskArns[0]
+		in.Task = *e.Task.TaskArns[0]
 		in.Command = setFlags.command
-		err = e.ExecuteCommand(in)
-		if err != nil {
+		if err := e.ExecuteCommand(in); err != nil {
 			log.Fatal(err)
 		}
 	},
