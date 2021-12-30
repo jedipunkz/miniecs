@@ -22,6 +22,7 @@ type api interface {
 	ListTasks(input *ecs.ListTasksInput) (*ecs.ListTasksOutput, error)
 	ListClusters(input *ecs.ListClustersInput) (*ecs.ListClustersOutput, error)
 	ListServices(input *ecs.ListServicesInput) (*ecs.ListServicesOutput, error)
+	DescribeServices(input *ecs.DescribeServicesInput) (*ecs.DescribeServicesOutput, error)
 }
 
 type ssmSessionStarter interface {
@@ -33,9 +34,11 @@ type ECS struct {
 	client         api
 	newSessStarter func() ssmSessionStarter
 
-	Clusters []string
-	Services []string
-	Task     *ecs.ListTasksOutput
+	Clusters       []string
+	Services       []string
+	Task           *ecs.ListTasksOutput
+	Service        string
+	TaskDefinition string
 
 	maxServiceStableTries int
 	pollIntervalDuration  time.Duration
@@ -95,6 +98,25 @@ func (e *ECS) GetTask(cluster, family string) error {
 		return &ErrGetTask{err: err}
 	}
 
+	return nil
+}
+
+// GetService is function to get ecs service(s)
+func (e *ECS) GetService(cluster, service string) error {
+	inputService := &ecs.DescribeServicesInput{
+		Cluster: aws.String(cluster),
+		Services: []*string{
+			aws.String(service),
+		},
+	}
+	resultService, err := e.client.DescribeServices(inputService)
+	if err != nil {
+		log.Fatal(err)
+		return &ErrListServices{err: err}
+	}
+	familySep1 := strings.Split(string(*resultService.Services[0].TaskDefinition), "/")
+	familySep2 := strings.Split(string(familySep1[len(familySep1)-1]), ":")
+	e.TaskDefinition = familySep2[0]
 	return nil
 }
 
