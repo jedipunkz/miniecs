@@ -20,8 +20,9 @@ go install github.com/jedipunkz/miniecs@latest
 ### Execute Command
 
 ```shell
-$ miniecs exec --cluster <cluster-name> \
-    --family <task-family-name> \
+$ miniecs exec \
+    --cluster <cluster-name> \
+    --service <service-name> \
     --container <container-name> \
     --command <command>
 ```
@@ -31,7 +32,7 @@ $ miniecs exec --cluster <cluster-name> \
 | Option      | Explanation          | Required |
 |-------------|----------------------|----------|
 | --cluster   | ECS Cluster Name     | YES      |
-| --family    | ECS Task Family Name | YES      |
+| --service   | ECS Service Name     | YES      |
 | --container | Container Name       | YES      |
 | --command   | Command              | YES      |
 
