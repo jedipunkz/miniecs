@@ -90,6 +90,11 @@ func (e *ECS) GetTask(cluster, family string) error {
 		return &ErrGetTask{err: err}
 	}
 	e.Task = getTaskCmdresp
+	if len(e.Task.TaskArns) == 0 {
+		log.Println("Task Family not found.")
+		return &ErrGetTask{err: err}
+	}
+
 	return nil
 }
 
