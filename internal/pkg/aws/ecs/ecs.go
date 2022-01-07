@@ -120,7 +120,7 @@ func (e *ECS) GetService(cluster, service string) error {
 	return nil
 }
 
-// GetClusters is function to get list of clusters
+// ListClusters is function to get list of clusters
 func (e *ECS) ListClusters() error {
 	resultClusters, err := e.client.ListClusters(&ecs.ListClustersInput{})
 	if err != nil {
@@ -136,7 +136,7 @@ func (e *ECS) ListClusters() error {
 	return nil
 }
 
-// GetServices is function to get list of services
+// ListServices is function to get list of services
 func (e *ECS) ListServices(cluster string) error {
 	inputService := &ecs.ListServicesInput{Cluster: aws.String(cluster)}
 	resultServices, err := e.client.ListServices(inputService)

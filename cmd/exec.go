@@ -38,7 +38,7 @@ with parameters where ecs cluster, container name and command.`,
 		if err := e.GetTask(setFlags.cluster, e.TaskDefinition); err != nil {
 			log.Fatal(err)
 		}
-		in.Task = *e.Task.TaskArns[0]
+		in.Task = *e.Task.TaskArns[0] // select first task
 		in.Command = setFlags.command
 		if err := e.ExecuteCommand(in); err != nil {
 			log.Fatal(err)
