@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/aws/aws-sdk-go/aws/session"
 	myecs "github.com/jedipunkz/miniecs/internal/pkg/aws/ecs"
 	log "github.com/sirupsen/logrus"
@@ -30,8 +28,6 @@ with parameters where ecs cluster, container name and command.`,
 			log.Fatal(err)
 		}
 
-		fmt.Println(e.TaskDefinition)
-
 		in := myecs.ExecuteCommandInput{}
 		in.Cluster = setFlags.cluster
 		in.Container = setFlags.container
@@ -40,6 +36,15 @@ with parameters where ecs cluster, container name and command.`,
 		}
 		in.Task = *e.Task.TaskArns[0] // select first task
 		in.Command = setFlags.command
+
+		log.WithFields(log.Fields{
+			"cluster":   in.Cluster,
+			"service":   setFlags.service,
+			"task":      in.Task,
+			"container": in.Container,
+			"command":   setFlags.command,
+		}).Info("ECS Execute Login with These Parameters")
+
 		if err := e.ExecuteCommand(in); err != nil {
 			log.Fatal(err)
 		}
