@@ -1,6 +1,6 @@
 # miniecs
 
-miniecs is a CLI tool for AWS ECS.
+miniecs is a CLI tool. You can search ecs environments by incremental (fuzzy finder) and execute command on container by specifying any ecs parameters.
 
 [![GitHub Workflow Status](https://img.shields.io/github/workflow/status/jedipunkz/miniecs/Go-CI?style=flat-square)](https://github.com/jedipunkz/miniecs/actions?query=workflow%3AGo-CI)
 
@@ -19,9 +19,9 @@ go install github.com/jedipunkz/miniecs@latest
 
 ## Usage
 
-### Selct Command
+### Select Sub-Command
 
-Fuzzy finder sub-command to execute command. 
+A sub-command to login ecs container with incremental searching.
 You must to have `~/miniecs.yaml` file included ecs resource(s) infomation.
 
 ```yaml
@@ -44,9 +44,9 @@ Run 'select' sub-command.
 $ miniecs select
 ```
 
-### Execute Command
+### Execute Sub-Command
 
-Execute 'exec' sub-command to specify any resources.
+A sub-command to exec command on container by specifying any resources.
 
 ```shell
 $ miniecs exec \
@@ -65,9 +65,9 @@ $ miniecs exec \
 | --container | Container Name       | YES      |
 | --command   | Command              | YES      |
 
-### List Command
+### List Sub-Command
 
-Get table information of ecs cluster(s) and service(s).
+A sub-command to get table information of ecs cluster(s) and service(s).
 
 ```shell
 $ miniecs list
