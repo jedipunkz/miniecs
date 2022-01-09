@@ -1,0 +1,26 @@
+ecss:
+  - name: foo
+    cluster: foo-ecs-cluster
+    service: foo-ecs-service
+    container: web
+    command: bash
+  - name: bar
+    cluster: bar-ecs-cluster
+    service: bar-ecs-service
+    container: web
+    command: bash
+  - name: buzz
+    cluster: buzz-ecs-cluster
+    service: buzz-ecs-service
+    container: web
+    command: bash
+  - name: poco
+    cluster: poco-ecs-cluster
+    service: poco-ecs-service
+    container: nginx
+    command: sh
+  - name: nyannyan
+    cluster: nyannyan-ecs-cluster
+    service: nyannyan-ecs-service
+    container: nginx
+    command: sh
