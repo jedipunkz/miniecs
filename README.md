@@ -4,6 +4,7 @@
 
 [![GitHub Workflow Status](https://img.shields.io/github/workflow/status/jedipunkz/miniecs/Go-CI?style=flat-square)](https://github.com/jedipunkz/miniecs/actions?query=workflow%3AGo-CI)
 
+<img src="https://raw.githubusercontent.com/jedipunkz/miniecs/main/pix/miniecs.gif">
 
 ## Requirement
 
