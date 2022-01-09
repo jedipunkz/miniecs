@@ -54,9 +54,7 @@ var selectCmd = &cobra.Command{
 		if err := viper.Unmarshal(&cfg); err != nil {
 			log.Fatal(err)
 		}
-		for _, ecs := range cfg.ECSs {
-			ecss = append(ecss, ecs)
-		}
+		ecss = append(ecss, cfg.ECSs...)
 
 		idx, err := fuzzyfinder.FindMulti(
 			ecss,
