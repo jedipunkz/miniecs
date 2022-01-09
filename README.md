@@ -9,6 +9,7 @@ miniecs is a CLI tool for AWS ECS.
 ## Requirement
 
 - go 1.17.x or later
+- install [session-manager-plugin](https://docs.aws.amazon.com/ja_jp/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
 
 ## Installation
 
