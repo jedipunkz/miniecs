@@ -17,7 +17,34 @@ go install github.com/jedipunkz/miniecs@latest
 
 ## Usage
 
+### Selct Command
+
+Fuzzy finder sub-command to execute command. 
+You must to have `~/miniecs.yaml` file included ecs resource(s) infomation.
+
+```yaml
+ecss:
+  - name: foo
+    cluster: foo-cluster
+    service: foo-service
+    container: foo
+    command: bash
+  - name: bar
+    cluster: bar-cluster
+    service: bar-service
+    container: bar
+    command: bash
+```
+
+Run 'select' sub-command.
+
+```shell
+$ miniecs select
+```
+
 ### Execute Command
+
+Execute 'exec' sub-command to specify any resources.
 
 ```shell
 $ miniecs exec \
@@ -37,6 +64,8 @@ $ miniecs exec \
 | --command   | Command              | YES      |
 
 ### List Command
+
+Get table information of ecs cluster(s) and service(s).
 
 ```shell
 $ miniecs list
