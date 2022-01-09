@@ -49,10 +49,11 @@ var selectCmd = &cobra.Command{
 		viper.AddConfigPath(home)
 		viper.SetConfigName(confFile)
 		if err := viper.ReadInConfig(); err != nil {
-			log.Info(home)
 			log.Fatal(err)
 		}
-		viper.Unmarshal(&cfg)
+		if err := viper.Unmarshal(&cfg); err != nil {
+			log.Fatal(err)
+		}
 		for _, ecs := range cfg.ECSs {
 			ecss = append(ecss, ecs)
 		}
