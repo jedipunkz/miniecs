@@ -59,7 +59,7 @@ var selectCmd = &cobra.Command{
 		idx, err := fuzzyfinder.FindMulti(
 			ecss,
 			func(i int) string {
-				return ecss[i].Service
+				return ecss[i].Name
 			},
 			fuzzyfinder.WithPreviewWindow(func(i, w, h int) string {
 				if i == -1 {
