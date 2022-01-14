@@ -30,10 +30,10 @@ type ECS struct {
 	Command   string
 }
 
-// selectCmd represents the select command
-var selectCmd = &cobra.Command{
-	Use:   "select",
-	Short: "select cluster, service",
+// loginCmd represents the login command
+var loginCmd = &cobra.Command{
+	Use:   "login",
+	Short: "login cluster, service",
 	Run: func(cmd *cobra.Command, args []string) {
 		e := myecs.NewEcs(session.NewSession())
 
@@ -86,7 +86,7 @@ var selectCmd = &cobra.Command{
 		if err := e.GetTask(ecss[idx[0]].Cluster, e.TaskDefinition); err != nil {
 			log.Fatal(err)
 		}
-		in.Task = *e.Task.TaskArns[0] // select first task
+		in.Task = *e.Task.TaskArns[0] // login first task
 		in.Command = ecss[idx[0]].Command
 
 		log.WithFields(log.Fields{
@@ -104,5 +104,5 @@ var selectCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(selectCmd)
+	rootCmd.AddCommand(loginCmd)
 }
