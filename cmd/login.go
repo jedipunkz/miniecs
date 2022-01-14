@@ -39,9 +39,8 @@ var loginCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		var ecs ECS
 		var ecss ECSs
-		var shell string
 
-		shell = viper.GetString("shell")
+		shell := viper.GetString("shell")
 
 		e := myecs.NewEcs(session.NewSession())
 		if err := e.ListClusters(); err != nil {
