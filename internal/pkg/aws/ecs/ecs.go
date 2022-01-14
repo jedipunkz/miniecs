@@ -23,6 +23,7 @@ type api interface {
 	ListClusters(input *ecs.ListClustersInput) (*ecs.ListClustersOutput, error)
 	ListServices(input *ecs.ListServicesInput) (*ecs.ListServicesOutput, error)
 	DescribeServices(input *ecs.DescribeServicesInput) (*ecs.DescribeServicesOutput, error)
+	DescribeTaskDefinition(input *ecs.DescribeTaskDefinitionInput) (*ecs.DescribeTaskDefinitionOutput, error)
 }
 
 type ssmSessionStarter interface {
@@ -34,8 +35,10 @@ type ECS struct {
 	client         api
 	newSessStarter func() ssmSessionStarter
 
-	Clusters       []string
-	Services       []string
+	Clusters []string
+	Services []string
+
+	ContainerName  string
 	Task           *ecs.ListTasksOutput
 	Service        string
 	TaskDefinition string
@@ -117,6 +120,37 @@ func (e *ECS) GetService(cluster, service string) error {
 	familySep1 := strings.Split(string(*resultService.Services[0].TaskDefinition), "/")
 	familySep2 := strings.Split(string(familySep1[len(familySep1)-1]), ":")
 	e.TaskDefinition = familySep2[0]
+	return nil
+}
+
+// GetContainerName is function to get ecs service(s)
+func (e *ECS) GetContainerName(cluster, service string) error {
+	// fmt.Println("cluster: " + cluster)
+	// fmt.Println("service: " + service)
+
+	inputService := &ecs.DescribeServicesInput{
+		Cluster: aws.String(cluster),
+		Services: []*string{
+			aws.String(service),
+		},
+	}
+	resultService, err := e.client.DescribeServices(inputService)
+	if err != nil {
+		log.Fatal(err)
+		return &ErrListServices{err: err}
+	}
+	// e.ContainerName = *resultService.Services[0].LoadBalancers[0].ContainerName
+	// fmt.Println(*resultService.Services[0])
+	// fmt.Println(len(resultService.Services[0].ServiceRegistries))
+	// fmt.Println(len(resultService.Services[0].LoadBalancers))
+	// fmt.Println(*resultService.Services[0].LoadBalancers[0].ContainerName)
+	// fmt.Println(*resultService.Services[0].ServiceRegistries[0].ContainerName)
+	if len(resultService.Services[0].LoadBalancers) != 0 {
+		e.ContainerName = *resultService.Services[0].LoadBalancers[0].ContainerName
+	} else {
+		e.ContainerName = "unknown"
+	}
+	// fmt.Println(e.ContainerName)
 	return nil
 }
 
