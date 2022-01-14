@@ -19,7 +19,7 @@ go install github.com/jedipunkz/miniecs@latest
 
 ## Usage
 
-### Select Sub-Command
+### Login Sub-Command
 
 A sub-command to login ecs container with incremental searching.
 You must to have `~/miniecs.yaml` file included ecs resource(s) infomation.
@@ -38,10 +38,10 @@ ecss:
     command: bash
 ```
 
-Run 'select' sub-command.
+Run 'login' sub-command.
 
 ```shell
-$ miniecs select
+$ miniecs login
 ```
 
 ### Execute Sub-Command
