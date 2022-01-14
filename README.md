@@ -8,7 +8,7 @@ miniecs is a CLI tool. You can search ecs environments by incremental (fuzzy fin
 
 ## Requirement
 
-- go 1.17.x or later
+- install go 1.17.x or later
 - install [session-manager-plugin](https://docs.aws.amazon.com/ja_jp/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
 
 ## Installation
@@ -25,17 +25,7 @@ A sub-command to login ecs container with incremental searching.
 You must to have `~/miniecs.yaml` file included ecs resource(s) infomation.
 
 ```yaml
-ecss:
-  - name: foo
-    cluster: foo-cluster
-    service: foo-service
-    container: foo
-    command: bash
-  - name: bar
-    cluster: bar-cluster
-    service: bar-service
-    container: bar
-    command: bash
+shell: sh # or shell name on container
 ```
 
 Run 'login' sub-command.
