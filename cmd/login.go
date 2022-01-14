@@ -60,41 +60,42 @@ var loginCmd = &cobra.Command{
 				if err := e.GetContainerName(e.TaskDefinition); err != nil {
 					log.Fatal(err)
 				}
-				for _, container := range e.Containers {
-					ecs.Container = container
+				for i := range e.Containers {
+					ecs.Container = e.Containers[i]
 
 					ecss = append(ecss, ecs)
 				}
 			}
 		}
+		uecss := unique(ecss)
 
 		idx, err := fuzzyfinder.FindMulti(
-			ecss,
+			uecss,
 			func(i int) string {
-				return ecss[i].Cluster + "::" + ecss[i].Service + "::" + ecss[i].Container
+				return uecss[i].Cluster + "::" + uecss[i].Service + "::" + uecss[i].Container
 			},
 			fuzzyfinder.WithPreviewWindow(func(i, w, h int) string {
 				if i == -1 {
 					return ""
 				}
 				return fmt.Sprintf("Cluster: %s\nService: %s\nContainer: %s\nCommand: %s",
-					ecss[i].Cluster,
-					ecss[i].Service,
-					ecss[i].Container,
+					uecss[i].Cluster,
+					uecss[i].Service,
+					uecss[i].Container,
 					shell)
 			}))
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		if err := e.GetService(ecss[idx[0]].Cluster, ecss[idx[0]].Service); err != nil {
+		if err := e.GetService(uecss[idx[0]].Cluster, uecss[idx[0]].Service); err != nil {
 			log.Fatal(err)
 		}
 
 		in := myecs.ExecuteCommandInput{}
-		in.Cluster = ecss[idx[0]].Cluster
-		in.Container = ecss[idx[0]].Container
-		if err := e.GetTask(ecss[idx[0]].Cluster, e.TaskDefinition); err != nil {
+		in.Cluster = uecss[idx[0]].Cluster
+		in.Container = uecss[idx[0]].Container
+		if err := e.GetTask(uecss[idx[0]].Cluster, e.TaskDefinition); err != nil {
 			log.Fatal(err)
 		}
 		in.Task = *e.Task.TaskArns[0] // login first task
@@ -102,7 +103,7 @@ var loginCmd = &cobra.Command{
 
 		log.WithFields(log.Fields{
 			"cluster":   in.Cluster,
-			"service":   ecss[idx[0]].Service,
+			"service":   uecss[idx[0]].Service,
 			"task":      in.Task,
 			"container": in.Container,
 			"command":   in.Command,
@@ -129,4 +130,19 @@ func init() {
 	if err := viper.ReadInConfig(); err != nil {
 		log.Fatal(err)
 	}
+}
+func unique(target ECSs) (unique ECSs) {
+	for _, v := range target {
+		skip := false
+		for _, u := range unique {
+			if v == u {
+				skip = true
+				break
+			}
+		}
+		if !skip {
+			unique = append(unique, v)
+		}
+	}
+	return unique
 }
