@@ -55,18 +55,24 @@ var loginCmd = &cobra.Command{
 				ecs.Cluster = cluster
 				ecs.Service = service
 
-				if err := e.GetContainerName(cluster, service); err != nil {
+				if err := e.GetService(cluster, service); err != nil {
 					log.Fatal(err)
 				}
-				ecs.Container = e.ContainerName
+				if err := e.GetContainerName(e.TaskDefinition); err != nil {
+					log.Fatal(err)
+				}
+				for _, container := range e.Containers {
+					ecs.Container = container
+
+					ecss = append(ecss, ecs)
+				}
 			}
-			ecss = append(ecss, ecs)
 		}
 
 		idx, err := fuzzyfinder.FindMulti(
 			ecss,
 			func(i int) string {
-				return ecss[i].Service
+				return ecss[i].Cluster + "::" + ecss[i].Service + "::" + ecss[i].Container
 			},
 			fuzzyfinder.WithPreviewWindow(func(i, w, h int) string {
 				if i == -1 {

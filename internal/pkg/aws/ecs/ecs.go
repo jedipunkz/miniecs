@@ -35,10 +35,10 @@ type ECS struct {
 	client         api
 	newSessStarter func() ssmSessionStarter
 
-	Clusters []string
-	Services []string
+	Clusters   []string
+	Services   []string
+	Containers []string
 
-	ContainerName  string
 	Task           *ecs.ListTasksOutput
 	Service        string
 	TaskDefinition string
@@ -124,23 +124,24 @@ func (e *ECS) GetService(cluster, service string) error {
 }
 
 // GetContainerName is function to get ecs service(s)
-func (e *ECS) GetContainerName(cluster, service string) error {
-	inputService := &ecs.DescribeServicesInput{
-		Cluster: aws.String(cluster),
-		Services: []*string{
-			aws.String(service),
-		},
+func (e *ECS) GetContainerName(taskdefinition string) error {
+	inputTaskDefinition := &ecs.DescribeTaskDefinitionInput{
+		TaskDefinition: aws.String(taskdefinition),
 	}
-	resultService, err := e.client.DescribeServices(inputService)
+
+	result, err := e.client.DescribeTaskDefinition(inputTaskDefinition)
 	if err != nil {
 		log.Fatal(err)
-		return &ErrListServices{err: err}
+		return &ErrGetContainerName{err: err}
 	}
-	if len(resultService.Services[0].LoadBalancers) != 0 {
-		e.ContainerName = *resultService.Services[0].LoadBalancers[0].ContainerName
-	} else {
-		e.ContainerName = "unknown"
+
+	// var containers []string
+	for _, container := range result.TaskDefinition.ContainerDefinitions {
+
+		// e.Containers = *result.TaskDefinition.ContainerDefinitions[0].Name
+		e.Containers = append(e.Containers, *container.Name)
 	}
+
 	return nil
 }
 
