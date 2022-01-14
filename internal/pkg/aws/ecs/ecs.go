@@ -23,6 +23,7 @@ type api interface {
 	ListClusters(input *ecs.ListClustersInput) (*ecs.ListClustersOutput, error)
 	ListServices(input *ecs.ListServicesInput) (*ecs.ListServicesOutput, error)
 	DescribeServices(input *ecs.DescribeServicesInput) (*ecs.DescribeServicesOutput, error)
+	DescribeTaskDefinition(input *ecs.DescribeTaskDefinitionInput) (*ecs.DescribeTaskDefinitionOutput, error)
 }
 
 type ssmSessionStarter interface {
@@ -34,8 +35,10 @@ type ECS struct {
 	client         api
 	newSessStarter func() ssmSessionStarter
 
-	Clusters       []string
-	Services       []string
+	Clusters   []string
+	Services   []string
+	Containers []string
+
 	Task           *ecs.ListTasksOutput
 	Service        string
 	TaskDefinition string
@@ -117,6 +120,28 @@ func (e *ECS) GetService(cluster, service string) error {
 	familySep1 := strings.Split(string(*resultService.Services[0].TaskDefinition), "/")
 	familySep2 := strings.Split(string(familySep1[len(familySep1)-1]), ":")
 	e.TaskDefinition = familySep2[0]
+	return nil
+}
+
+// GetContainerName is function to get ecs service(s)
+func (e *ECS) GetContainerName(taskdefinition string) error {
+	inputTaskDefinition := &ecs.DescribeTaskDefinitionInput{
+		TaskDefinition: aws.String(taskdefinition),
+	}
+
+	result, err := e.client.DescribeTaskDefinition(inputTaskDefinition)
+	if err != nil {
+		log.Fatal(err)
+		return &ErrGetContainerName{err: err}
+	}
+
+	// var containers []string
+	for _, container := range result.TaskDefinition.ContainerDefinitions {
+
+		// e.Containers = *result.TaskDefinition.ContainerDefinitions[0].Name
+		e.Containers = append(e.Containers, *container.Name)
+	}
+
 	return nil
 }
 
