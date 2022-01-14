@@ -125,9 +125,6 @@ func (e *ECS) GetService(cluster, service string) error {
 
 // GetContainerName is function to get ecs service(s)
 func (e *ECS) GetContainerName(cluster, service string) error {
-	// fmt.Println("cluster: " + cluster)
-	// fmt.Println("service: " + service)
-
 	inputService := &ecs.DescribeServicesInput{
 		Cluster: aws.String(cluster),
 		Services: []*string{
@@ -139,18 +136,11 @@ func (e *ECS) GetContainerName(cluster, service string) error {
 		log.Fatal(err)
 		return &ErrListServices{err: err}
 	}
-	// e.ContainerName = *resultService.Services[0].LoadBalancers[0].ContainerName
-	// fmt.Println(*resultService.Services[0])
-	// fmt.Println(len(resultService.Services[0].ServiceRegistries))
-	// fmt.Println(len(resultService.Services[0].LoadBalancers))
-	// fmt.Println(*resultService.Services[0].LoadBalancers[0].ContainerName)
-	// fmt.Println(*resultService.Services[0].ServiceRegistries[0].ContainerName)
 	if len(resultService.Services[0].LoadBalancers) != 0 {
 		e.ContainerName = *resultService.Services[0].LoadBalancers[0].ContainerName
 	} else {
 		e.ContainerName = "unknown"
 	}
-	// fmt.Println(e.ContainerName)
 	return nil
 }
 
