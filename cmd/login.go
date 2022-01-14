@@ -40,20 +40,13 @@ var loginCmd = &cobra.Command{
 		var cfg Config
 		var ecss = []ECS{}
 
-		home, err := homedir.Dir()
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		viper.SetConfigType("yaml")
-		viper.AddConfigPath(home)
-		viper.SetConfigName(confFile)
 		if err := viper.ReadInConfig(); err != nil {
 			log.Fatal(err)
 		}
 		if err := viper.Unmarshal(&cfg); err != nil {
 			log.Fatal(err)
 		}
+
 		ecss = append(ecss, cfg.ECSs...)
 
 		idx, err := fuzzyfinder.FindMulti(
@@ -105,4 +98,13 @@ var loginCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(loginCmd)
+
+	home, err := homedir.Dir()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	viper.SetConfigType("yaml")
+	viper.AddConfigPath(home)
+	viper.SetConfigName(confFile)
 }
