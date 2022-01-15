@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	myecs "github.com/jedipunkz/miniecs/internal/pkg/aws/ecs"
@@ -23,6 +24,7 @@ type ECS struct {
 	TaskDefinition string
 	Container      string
 	Command        string
+	Shell          string
 }
 
 // ECSs is struct for list of ECS
@@ -36,7 +38,22 @@ var loginCmd = &cobra.Command{
 		var ecs ECS
 		var ecss ECSs
 
-		shell := viper.GetString("shell")
+		ecs.Shell = "sh"
+
+		home, err := homedir.Dir()
+		if err != nil {
+			log.Fatal(err)
+		}
+		if _, err := os.Stat(home + "/" + confFile + ".yaml"); err == nil {
+			viper.SetConfigType("yaml")
+			viper.AddConfigPath(home)
+			viper.SetConfigName(confFile)
+
+			if err := viper.ReadInConfig(); err != nil {
+				log.Fatal(err)
+			}
+			ecs.Shell = viper.GetString("shell")
+		}
 
 		e := myecs.NewEcs(session.NewSession())
 		if err := e.ListClusters(); err != nil {
@@ -78,7 +95,7 @@ var loginCmd = &cobra.Command{
 					ecss[i].Cluster,
 					ecss[i].Service,
 					ecss[i].Container,
-					shell)
+					ecs.Shell)
 			}))
 		if err != nil {
 			log.Fatal(err)
@@ -91,8 +108,7 @@ var loginCmd = &cobra.Command{
 			log.Fatal(err)
 		}
 		in.Task = *e.Task.TaskArns[0] // login first task
-		in.Command = shell
-
+		in.Command = ecs.Shell
 		log.WithFields(log.Fields{
 			"cluster":   in.Cluster,
 			"service":   ecss[idx[0]].Service,
@@ -109,17 +125,4 @@ var loginCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(loginCmd)
-
-	home, err := homedir.Dir()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(home)
-	viper.SetConfigName(confFile)
-
-	if err := viper.ReadInConfig(); err != nil {
-		log.Fatal(err)
-	}
 }

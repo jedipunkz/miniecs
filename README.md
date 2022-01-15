@@ -22,7 +22,8 @@ go install github.com/jedipunkz/miniecs@latest
 ### Login Sub-Command
 
 A sub-command to login ecs container with incremental searching.
-You must to have `~/miniecs.yaml` file included ecs resource(s) infomation.
+
+Default login shell is "sh". If you would like to change shell, you can specify shell at `~/miniecs.yaml` file.
 
 ```yaml
 shell: sh # or shell name on container
