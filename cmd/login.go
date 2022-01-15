@@ -16,17 +16,13 @@ const (
 	confFile = "miniecs"
 )
 
-// Config is struct
-type Config struct {
-	ECSs []ECS
-}
-
 // ECS is struct
 type ECS struct {
-	Cluster   string
-	Service   string
-	Container string
-	Command   string
+	Cluster        string
+	Service        string
+	TaskDefinition string
+	Container      string
+	Command        string
 }
 
 // ECSs is struct for list of ECS
@@ -50,52 +46,48 @@ var loginCmd = &cobra.Command{
 			if err := e.ListServices(cluster); err != nil {
 				log.Fatal(err)
 			}
+			ecs.Cluster = cluster
 			for _, service := range e.Services {
-				ecs.Cluster = cluster
-				ecs.Service = service
-
-				if err := e.GetService(cluster, service); err != nil {
+				if err := e.GetTaskDefinition(cluster, service); err != nil {
 					log.Fatal(err)
 				}
 				if err := e.GetContainerName(e.TaskDefinition); err != nil {
 					log.Fatal(err)
 				}
 				for i := range e.Containers {
+					ecs.Cluster = cluster
+					ecs.Service = service
+					ecs.TaskDefinition = e.TaskDefinition
 					ecs.Container = e.Containers[i]
-
 					ecss = append(ecss, ecs)
 				}
+				e.Containers = nil
 			}
 		}
-		uecss := unique(ecss)
 
 		idx, err := fuzzyfinder.FindMulti(
-			uecss,
+			ecss,
 			func(i int) string {
-				return uecss[i].Cluster + "::" + uecss[i].Service + "::" + uecss[i].Container
+				return ecss[i].Cluster + "::" + ecss[i].Service + "::" + ecss[i].Container
 			},
 			fuzzyfinder.WithPreviewWindow(func(i, w, h int) string {
 				if i == -1 {
 					return ""
 				}
 				return fmt.Sprintf("Cluster: %s\nService: %s\nContainer: %s\nCommand: %s",
-					uecss[i].Cluster,
-					uecss[i].Service,
-					uecss[i].Container,
+					ecss[i].Cluster,
+					ecss[i].Service,
+					ecss[i].Container,
 					shell)
 			}))
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		if err := e.GetService(uecss[idx[0]].Cluster, uecss[idx[0]].Service); err != nil {
-			log.Fatal(err)
-		}
-
 		in := myecs.ExecuteCommandInput{}
-		in.Cluster = uecss[idx[0]].Cluster
-		in.Container = uecss[idx[0]].Container
-		if err := e.GetTask(uecss[idx[0]].Cluster, e.TaskDefinition); err != nil {
+		in.Cluster = ecss[idx[0]].Cluster
+		in.Container = ecss[idx[0]].Container
+		if err := e.GetTask(ecss[idx[0]].Cluster, e.TaskDefinition); err != nil {
 			log.Fatal(err)
 		}
 		in.Task = *e.Task.TaskArns[0] // login first task
@@ -103,7 +95,7 @@ var loginCmd = &cobra.Command{
 
 		log.WithFields(log.Fields{
 			"cluster":   in.Cluster,
-			"service":   uecss[idx[0]].Service,
+			"service":   ecss[idx[0]].Service,
 			"task":      in.Task,
 			"container": in.Container,
 			"command":   in.Command,

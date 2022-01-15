@@ -104,8 +104,8 @@ func (e *ECS) GetTask(cluster, family string) error {
 	return nil
 }
 
-// GetService is function to get ecs service(s)
-func (e *ECS) GetService(cluster, service string) error {
+// GetTaskDefinition is function to get ecs service(s)
+func (e *ECS) GetTaskDefinition(cluster, service string) error {
 	inputService := &ecs.DescribeServicesInput{
 		Cluster: aws.String(cluster),
 		Services: []*string{

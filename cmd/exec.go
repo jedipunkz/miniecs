@@ -24,7 +24,7 @@ with parameters where ecs cluster, container name and command.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		e := myecs.NewEcs(session.NewSession())
 
-		if err := e.GetService(setFlags.cluster, setFlags.service); err != nil {
+		if err := e.GetTaskDefinition(setFlags.cluster, setFlags.service); err != nil {
 			log.Fatal(err)
 		}
 
