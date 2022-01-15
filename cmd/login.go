@@ -123,18 +123,3 @@ func init() {
 		log.Fatal(err)
 	}
 }
-func unique(target ECSs) (unique ECSs) {
-	for _, v := range target {
-		skip := false
-		for _, u := range unique {
-			if v == u {
-				skip = true
-				break
-			}
-		}
-		if !skip {
-			unique = append(unique, v)
-		}
-	}
-	return unique
-}
