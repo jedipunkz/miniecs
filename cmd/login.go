@@ -87,7 +87,7 @@ var loginCmd = &cobra.Command{
 		in := myecs.ExecuteCommandInput{}
 		in.Cluster = ecss[idx[0]].Cluster
 		in.Container = ecss[idx[0]].Container
-		if err := e.GetTask(ecss[idx[0]].Cluster, e.TaskDefinition); err != nil {
+		if err := e.GetTask(ecss[idx[0]].Cluster, ecss[idx[0]].TaskDefinition); err != nil {
 			log.Fatal(err)
 		}
 		in.Task = *e.Task.TaskArns[0] // login first task
