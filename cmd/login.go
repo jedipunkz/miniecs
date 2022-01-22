@@ -18,29 +18,15 @@ const (
 	defaultShell = "sh"
 )
 
-// LoginECS is struct for login info to ECS Container
-type LoginECS struct {
-	Cluster        string
-	Service        string
-	Task           string
-	TaskDefinition string
-	Container      string
-	Command        string
-	Shell          string
-}
-
-// LoginECSs is struct for list of LoginECS
-type LoginECSs []LoginECS
-
 // loginCmd represents the login command
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "login cluster, service",
 	Run: func(cmd *cobra.Command, args []string) {
-		var loginECS LoginECS
-		var loginECSs LoginECSs
+		var execECS ExecECS
+		var execECSs ExecECSs
 
-		if err := loginECS.getShell(); err != nil {
+		if err := execECS.getShell(); err != nil {
 			log.Fatal(err)
 		}
 
@@ -52,7 +38,7 @@ var loginCmd = &cobra.Command{
 			if err := e.ListServices(cluster); err != nil {
 				log.Fatal(err)
 			}
-			loginECS.Cluster = cluster
+			execECS.Cluster = cluster
 			for _, service := range e.Services {
 				if err := e.GetTaskDefinition(cluster, service); err != nil {
 					log.Fatal(err)
@@ -61,50 +47,50 @@ var loginCmd = &cobra.Command{
 					log.Fatal(err)
 				}
 				for i := range e.Containers {
-					loginECS.Cluster = cluster
-					loginECS.Service = service
-					loginECS.TaskDefinition = e.TaskDefinition
-					loginECS.Container = e.Containers[i]
-					loginECSs = append(loginECSs, loginECS)
+					execECS.Cluster = cluster
+					execECS.Service = service
+					execECS.TaskDefinition = e.TaskDefinition
+					execECS.Container = e.Containers[i]
+					execECSs = append(execECSs, execECS)
 				}
 				e.Containers = nil
 			}
 		}
 
 		idx, err := fuzzyfinder.FindMulti(
-			loginECSs,
+			execECSs,
 			func(i int) string {
-				return loginECSs[i].Cluster + "::" + loginECSs[i].Service + "::" + loginECSs[i].Container
+				return execECSs[i].Cluster + "::" + execECSs[i].Service + "::" + execECSs[i].Container
 			},
 			fuzzyfinder.WithPreviewWindow(func(i, w, h int) string {
 				if i == -1 {
 					return ""
 				}
 				return fmt.Sprintf("Cluster: %s\nService: %s\nContainer: %s\nCommand: %s",
-					loginECSs[i].Cluster,
-					loginECSs[i].Service,
-					loginECSs[i].Container,
-					loginECS.Shell)
+					execECSs[i].Cluster,
+					execECSs[i].Service,
+					execECSs[i].Container,
+					execECS.Shell)
 			}))
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		loginECS.Cluster = loginECSs[idx[0]].Cluster
-		loginECS.Service = loginECSs[idx[0]].Service
-		loginECS.Container = loginECSs[idx[0]].Container
-		if err := e.GetTask(loginECSs[idx[0]].Cluster, loginECSs[idx[0]].TaskDefinition); err != nil {
+		execECS.Cluster = execECSs[idx[0]].Cluster
+		execECS.Service = execECSs[idx[0]].Service
+		execECS.Container = execECSs[idx[0]].Container
+		if err := e.GetTask(execECSs[idx[0]].Cluster, execECSs[idx[0]].TaskDefinition); err != nil {
 			log.Fatal(err)
 		}
-		loginECS.Task = *e.Task.TaskArns[0]
+		execECS.Task = *e.Task.TaskArns[0]
 
-		if err = loginECS.login(e); err != nil {
+		if err = execECS.login(e); err != nil {
 			log.Fatal(err)
 		}
 	},
 }
 
-func (l *LoginECS) getShell() error {
+func (l *ExecECS) getShell() error {
 	l.Shell = defaultShell
 
 	home, err := homedir.Dir()
@@ -125,7 +111,7 @@ func (l *LoginECS) getShell() error {
 	return nil
 }
 
-func (l *LoginECS) login(e *myecs.ECS) error {
+func (l *ExecECS) login(e *myecs.ECS) error {
 	in := myecs.ExecuteCommandInput{}
 	in.Cluster = l.Cluster
 	in.Container = l.Container
