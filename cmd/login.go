@@ -109,18 +109,26 @@ var loginCmd = &cobra.Command{
 		}
 		in.Task = *e.Task.TaskArns[0] // login first task
 		in.Command = ecs.Shell
-		log.WithFields(log.Fields{
-			"cluster":   in.Cluster,
-			"service":   ecss[idx[0]].Service,
-			"task":      in.Task,
-			"container": in.Container,
-			"command":   in.Command,
-		}).Info("ECS Execute Login with These Parameters")
-
-		if err := e.ExecuteCommand(in); err != nil {
+		if err = login(in, ecss[idx[0]].Service, e); err != nil {
 			log.Fatal(err)
 		}
 	},
+}
+
+func login(in myecs.ExecuteCommandInput, service string, e *myecs.ECS) error {
+	log.WithFields(log.Fields{
+		"cluster":   in.Cluster,
+		"service":   service,
+		"task":      in.Task,
+		"container": in.Container,
+		"command":   in.Command,
+	}).Info("ECS Execute Login with These Parameters")
+
+	if err := e.ExecuteCommand(in); err != nil {
+		log.Fatal(err)
+		return err
+	}
+	return nil
 }
 
 func init() {
