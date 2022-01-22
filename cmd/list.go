@@ -28,13 +28,26 @@ var listCmd = &cobra.Command{
 				log.Fatal(err)
 			}
 			for _, service := range e.Services {
-				ecsMatrix = append(ecsMatrix, []string{cluster, service})
+				if err := e.GetTaskDefinition(cluster, service); err != nil {
+					log.Fatal(err)
+				}
+				if err := e.GetContainerName(e.TaskDefinition); err != nil {
+					log.Fatal(err)
+				}
+				for i := range e.Containers {
+					ecsMatrix = append(ecsMatrix,
+						[]string{cluster, service, e.TaskDefinition, e.Containers[i]})
+				}
 			}
 		}
 
 		table := tablewriter.NewWriter(os.Stdout)
-		table.SetHeader([]string{"Cluster Name", "Service Name"})
-		table.SetFooter([]string{"Total", strconv.Itoa(len(ecsMatrix))}) // Add Footer
+		table.SetHeader([]string{
+			"Cluster Name",
+			"Service Name",
+			"TaskDefinition Name",
+			"Container Name"})
+		table.SetFooter([]string{"Total", "", "", strconv.Itoa(len(ecsMatrix))}) // Add Footer
 		table.SetBorder(true)
 		table.AppendBulk(ecsMatrix)
 		table.Render()
