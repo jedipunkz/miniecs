@@ -14,45 +14,34 @@ import (
 )
 
 const (
-	confFile = "miniecs"
+	confFile     = "miniecs"
+	defaultShell = "sh"
 )
 
-// ECS is struct
-type ECS struct {
+// LoginECS is struct for login info to ECS Container
+type LoginECS struct {
 	Cluster        string
 	Service        string
+	Task           string
 	TaskDefinition string
 	Container      string
 	Command        string
 	Shell          string
 }
 
-// ECSs is struct for list of ECS
-type ECSs []ECS
+// LoginECSs is struct for list of LoginECS
+type LoginECSs []LoginECS
 
 // loginCmd represents the login command
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "login cluster, service",
 	Run: func(cmd *cobra.Command, args []string) {
-		var ecs ECS
-		var ecss ECSs
+		var loginECS LoginECS
+		var loginECSs LoginECSs
 
-		ecs.Shell = "sh"
-
-		home, err := homedir.Dir()
-		if err != nil {
+		if err := loginECS.getShell(); err != nil {
 			log.Fatal(err)
-		}
-		if _, err := os.Stat(home + "/" + confFile + ".yaml"); err == nil {
-			viper.SetConfigType("yaml")
-			viper.AddConfigPath(home)
-			viper.SetConfigName(confFile)
-
-			if err := viper.ReadInConfig(); err != nil {
-				log.Fatal(err)
-			}
-			ecs.Shell = viper.GetString("shell")
 		}
 
 		e := myecs.NewEcs(session.NewSession())
@@ -63,7 +52,7 @@ var loginCmd = &cobra.Command{
 			if err := e.ListServices(cluster); err != nil {
 				log.Fatal(err)
 			}
-			ecs.Cluster = cluster
+			loginECS.Cluster = cluster
 			for _, service := range e.Services {
 				if err := e.GetTaskDefinition(cluster, service); err != nil {
 					log.Fatal(err)
@@ -72,56 +61,82 @@ var loginCmd = &cobra.Command{
 					log.Fatal(err)
 				}
 				for i := range e.Containers {
-					ecs.Cluster = cluster
-					ecs.Service = service
-					ecs.TaskDefinition = e.TaskDefinition
-					ecs.Container = e.Containers[i]
-					ecss = append(ecss, ecs)
+					loginECS.Cluster = cluster
+					loginECS.Service = service
+					loginECS.TaskDefinition = e.TaskDefinition
+					loginECS.Container = e.Containers[i]
+					loginECSs = append(loginECSs, loginECS)
 				}
 				e.Containers = nil
 			}
 		}
 
 		idx, err := fuzzyfinder.FindMulti(
-			ecss,
+			loginECSs,
 			func(i int) string {
-				return ecss[i].Cluster + "::" + ecss[i].Service + "::" + ecss[i].Container
+				return loginECSs[i].Cluster + "::" + loginECSs[i].Service + "::" + loginECSs[i].Container
 			},
 			fuzzyfinder.WithPreviewWindow(func(i, w, h int) string {
 				if i == -1 {
 					return ""
 				}
 				return fmt.Sprintf("Cluster: %s\nService: %s\nContainer: %s\nCommand: %s",
-					ecss[i].Cluster,
-					ecss[i].Service,
-					ecss[i].Container,
-					ecs.Shell)
+					loginECSs[i].Cluster,
+					loginECSs[i].Service,
+					loginECSs[i].Container,
+					loginECS.Shell)
 			}))
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		in := myecs.ExecuteCommandInput{}
-		in.Cluster = ecss[idx[0]].Cluster
-		in.Container = ecss[idx[0]].Container
-		if err := e.GetTask(ecss[idx[0]].Cluster, ecss[idx[0]].TaskDefinition); err != nil {
+		loginECS.Cluster = loginECSs[idx[0]].Cluster
+		loginECS.Service = loginECSs[idx[0]].Service
+		loginECS.Container = loginECSs[idx[0]].Container
+		if err := e.GetTask(loginECSs[idx[0]].Cluster, loginECSs[idx[0]].TaskDefinition); err != nil {
 			log.Fatal(err)
 		}
-		in.Task = *e.Task.TaskArns[0] // login first task
-		in.Command = ecs.Shell
-		if err = login(in, ecss[idx[0]].Service, e); err != nil {
+		loginECS.Task = *e.Task.TaskArns[0]
+
+		if err = loginECS.login(e); err != nil {
 			log.Fatal(err)
 		}
 	},
 }
 
-func login(in myecs.ExecuteCommandInput, service string, e *myecs.ECS) error {
+func (l *LoginECS) getShell() error {
+	l.Shell = defaultShell
+
+	home, err := homedir.Dir()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if _, err := os.Stat(home + "/" + confFile + ".yaml"); err == nil {
+		viper.SetConfigType("yaml")
+		viper.AddConfigPath(home)
+		viper.SetConfigName(confFile)
+
+		if err := viper.ReadInConfig(); err != nil {
+			log.Fatal(err)
+			return err
+		}
+		l.Shell = viper.GetString("shell")
+	}
+	return nil
+}
+
+func (l *LoginECS) login(e *myecs.ECS) error {
+	in := myecs.ExecuteCommandInput{}
+	in.Cluster = l.Cluster
+	in.Container = l.Container
+	in.Task = l.Task
+	in.Command = l.Shell
 	log.WithFields(log.Fields{
-		"cluster":   in.Cluster,
-		"service":   service,
-		"task":      in.Task,
-		"container": in.Container,
-		"command":   in.Command,
+		"cluster":   l.Cluster,
+		"service":   l.Service,
+		"task":      l.Task,
+		"container": l.Container,
+		"command":   l.Shell,
 	}).Info("ECS Execute Login with These Parameters")
 
 	if err := e.ExecuteCommand(in); err != nil {
