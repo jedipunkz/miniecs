@@ -4,7 +4,7 @@ go 1.17
 
 require (
 	github.com/aws/aws-sdk-go v1.44.69
-	github.com/ktr0731/go-fuzzyfinder v0.5.1
+	github.com/ktr0731/go-fuzzyfinder v0.6.0
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/olekukonko/tablewriter v0.0.5
 	github.com/sirupsen/logrus v1.8.1
