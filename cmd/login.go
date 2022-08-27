@@ -18,6 +18,10 @@ const (
 	defaultShell = "sh"
 )
 
+var loginSetFlags struct {
+	cluster string
+}
+
 // loginCmd represents the login command
 var loginCmd = &cobra.Command{
 	Use:   "login",
@@ -31,23 +35,46 @@ var loginCmd = &cobra.Command{
 		}
 
 		e := myecs.NewEcs(session.NewSession())
-		if err := e.ListClusters(); err != nil {
-			log.Fatal(err)
-		}
-		for _, cluster := range e.Clusters {
-			if err := e.ListServices(cluster); err != nil {
+		if loginSetFlags.cluster == "" {
+			if err := e.ListClusters(); err != nil {
 				log.Fatal(err)
 			}
-			execECS.Cluster = cluster
+			for _, cluster := range e.Clusters {
+				if err := e.ListServices(cluster); err != nil {
+					log.Fatal(err)
+				}
+				execECS.Cluster = cluster
+				for _, service := range e.Services {
+					if err := e.GetTaskDefinition(cluster, service); err != nil {
+						log.Fatal(err)
+					}
+					if err := e.GetContainerName(e.TaskDefinition); err != nil {
+						log.Fatal(err)
+					}
+					for i := range e.Containers {
+						execECS.Cluster = cluster
+						execECS.Service = service
+						execECS.TaskDefinition = e.TaskDefinition
+						execECS.Container = e.Containers[i]
+						execECSs = append(execECSs, execECS)
+					}
+					e.Containers = nil
+				}
+			}
+		} else {
+			if err := e.ListServices(loginSetFlags.cluster); err != nil {
+				log.Fatal(err)
+			}
+			execECS.Cluster = loginSetFlags.cluster
 			for _, service := range e.Services {
-				if err := e.GetTaskDefinition(cluster, service); err != nil {
+				if err := e.GetTaskDefinition(loginSetFlags.cluster, service); err != nil {
 					log.Fatal(err)
 				}
 				if err := e.GetContainerName(e.TaskDefinition); err != nil {
 					log.Fatal(err)
 				}
 				for i := range e.Containers {
-					execECS.Cluster = cluster
+					execECS.Cluster = loginSetFlags.cluster
 					execECS.Service = service
 					execECS.TaskDefinition = e.TaskDefinition
 					execECS.Container = e.Containers[i]
@@ -134,4 +161,5 @@ func (l *ExecECS) login(e *myecs.ECS) error {
 
 func init() {
 	rootCmd.AddCommand(loginCmd)
+	loginCmd.Flags().StringVarP(&loginSetFlags.cluster, "cluster", "", "", "ECS Cluster Name")
 }
