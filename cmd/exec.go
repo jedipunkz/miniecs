@@ -73,18 +73,18 @@ func init() {
 	rootCmd.AddCommand(execCmd)
 	execCmd.Flags().StringVarP(&setFlags.cluster, "cluster", "", "", "ECS Cluster Name")
 	if err := execCmd.MarkFlagRequired("cluster"); err != nil {
-		log.Fatalln(err)
+		log.Fatal(err)
 	}
 	execCmd.Flags().StringVarP(&setFlags.container, "container", "", "", "Container Name")
 	if err := execCmd.MarkFlagRequired("container"); err != nil {
-		log.Fatalln(err)
+		log.Fatal(err)
 	}
 	execCmd.Flags().StringVarP(&setFlags.service, "service", "", "", "ECS Service Name")
 	if err := execCmd.MarkFlagRequired("service"); err != nil {
-		log.Fatalln(err)
+		log.Fatal(err)
 	}
 	execCmd.Flags().StringVarP(&setFlags.command, "command", "", "", "Command Name")
 	if err := execCmd.MarkFlagRequired("command"); err != nil {
-		log.Fatalln(err)
+		log.Fatal(err)
 	}
 }
