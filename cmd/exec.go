@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	myecs "github.com/jedipunkz/miniecs/internal/pkg/aws/ecs"
 	log "github.com/sirupsen/logrus"
@@ -8,6 +9,7 @@ import (
 )
 
 var setFlags struct {
+	region    string
 	cluster   string
 	service   string
 	container string
@@ -24,7 +26,12 @@ with parameters where ecs cluster, container name and command.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		var execECS ExecECS
 
-		e := myecs.NewEcs(session.NewSession())
+		e := myecs.NewEcs(session.NewSessionWithOptions(session.Options{
+			Config: aws.Config{
+				CredentialsChainVerboseErrors: aws.Bool(true),
+				Region:                        aws.String(setFlags.region),
+			},
+		}))
 
 		if err := e.GetTaskDefinition(setFlags.cluster, setFlags.service); err != nil {
 			log.Fatal(err)
@@ -71,6 +78,10 @@ func (l *ExecECS) exec(e *myecs.ECS) error {
 
 func init() {
 	rootCmd.AddCommand(execCmd)
+	execCmd.Flags().StringVarP(&setFlags.region, "region", "", "", "Region Name")
+	if err := execCmd.MarkFlagRequired("region"); err != nil {
+		log.Fatal(err)
+	}
 	execCmd.Flags().StringVarP(&setFlags.cluster, "cluster", "", "", "ECS Cluster Name")
 	if err := execCmd.MarkFlagRequired("cluster"); err != nil {
 		log.Fatal(err)

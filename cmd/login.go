@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	myecs "github.com/jedipunkz/miniecs/internal/pkg/aws/ecs"
 	"github.com/ktr0731/go-fuzzyfinder"
@@ -19,6 +20,7 @@ const (
 )
 
 var loginSetFlags struct {
+	region  string
 	cluster string
 }
 
@@ -34,7 +36,14 @@ var loginCmd = &cobra.Command{
 			log.Fatal(err)
 		}
 
-		e := myecs.NewEcs(session.NewSession())
+		e := myecs.NewEcs(session.NewSessionWithOptions(session.Options{
+			Config: aws.Config{
+				CredentialsChainVerboseErrors: aws.Bool(true),
+				Region:                        aws.String(loginSetFlags.region),
+			},
+		}))
+
+		// without specifying cluster, will search all clusters
 		if loginSetFlags.cluster == "" {
 			if err := e.ListClusters(); err != nil {
 				log.Fatal(err)
@@ -61,7 +70,7 @@ var loginCmd = &cobra.Command{
 					e.Containers = nil
 				}
 			}
-		} else {
+		} else { // with specifying cluster option
 			if err := e.ListServices(loginSetFlags.cluster); err != nil {
 				log.Fatal(err)
 			}
@@ -87,13 +96,16 @@ var loginCmd = &cobra.Command{
 		idx, err := fuzzyfinder.FindMulti(
 			execECSs,
 			func(i int) string {
-				return execECSs[i].Cluster + "::" + execECSs[i].Service + "::" + execECSs[i].Container
+				return execECSs[i].Cluster + "::" +
+					execECSs[i].Service + "::" +
+					execECSs[i].Container
 			},
 			fuzzyfinder.WithPreviewWindow(func(i, w, h int) string {
 				if i == -1 {
 					return ""
 				}
-				return fmt.Sprintf("Cluster: %s\nService: %s\nContainer: %s\nCommand: %s",
+				return fmt.Sprintf(
+					"Cluster: %s\nService: %s\nContainer: %s\nCommand: %s",
 					execECSs[i].Cluster,
 					execECSs[i].Service,
 					execECSs[i].Container,
@@ -106,7 +118,9 @@ var loginCmd = &cobra.Command{
 		execECS.Cluster = execECSs[idx[0]].Cluster
 		execECS.Service = execECSs[idx[0]].Service
 		execECS.Container = execECSs[idx[0]].Container
-		if err := e.GetTask(execECSs[idx[0]].Cluster, execECSs[idx[0]].TaskDefinition); err != nil {
+		if err := e.GetTask(
+			execECSs[idx[0]].Cluster,
+			execECSs[idx[0]].TaskDefinition); err != nil {
 			log.Fatal(err)
 		}
 		execECS.Task = *e.Task.TaskArns[0]
@@ -161,5 +175,11 @@ func (l *ExecECS) login(e *myecs.ECS) error {
 
 func init() {
 	rootCmd.AddCommand(loginCmd)
-	loginCmd.Flags().StringVarP(&loginSetFlags.cluster, "cluster", "", "", "ECS Cluster Name")
+	loginCmd.Flags().StringVarP(
+		&loginSetFlags.region, "region", "", "", "Region Name")
+	if err := loginCmd.MarkFlagRequired("region"); err != nil {
+		log.Fatal(err)
+	}
+	loginCmd.Flags().StringVarP(
+		&loginSetFlags.cluster, "cluster", "", "", "ECS Cluster Name")
 }

@@ -4,6 +4,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	myecs "github.com/jedipunkz/miniecs/internal/pkg/aws/ecs"
 	"github.com/olekukonko/tablewriter"
@@ -11,12 +12,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var listSetFlags struct {
+	region string
+}
+
 // listCmd represents the listcommand
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "list subcommand",
 	Run: func(cmd *cobra.Command, args []string) {
-		e := myecs.NewEcs(session.NewSession())
+		e := myecs.NewEcs(session.NewSessionWithOptions(session.Options{
+			Config: aws.Config{
+				CredentialsChainVerboseErrors: aws.Bool(true),
+				Region:                        aws.String(listSetFlags.region),
+			},
+		}))
 		if err := e.ListClusters(); err != nil {
 			log.Fatal(err)
 		}
@@ -56,4 +66,8 @@ var listCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(listCmd)
+	listCmd.Flags().StringVarP(&listSetFlags.region, "region", "", "", "Region Name")
+	if err := listCmd.MarkFlagRequired("region"); err != nil {
+		log.Fatal(err)
+	}
 }
