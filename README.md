@@ -32,7 +32,13 @@ shell: sh # or shell name on container
 Run 'login' sub-command.
 
 ```shell
-$ miniecs login
+$ miniecs login --region <REGION_NAME>
+```
+
+You can specify Cluster.
+
+```shell
+$ miniecs login --region <REGION_NAME> --cluster <CLUSTER_NAME>
 ```
 
 ### Execute Sub-Command
@@ -41,16 +47,18 @@ A sub-command to exec command on container by specifying any resources.
 
 ```shell
 $ miniecs exec \
-    --cluster <cluster-name> \
-    --service <service-name> \
-    --container <container-name> \
-    --command <command>
+    --region    <REGION_NAME> \
+    --cluster   <CLUSTER_NAME> \
+    --service   <SERVICE_NAME> \
+    --container <CONTAINER_NAME> \
+    --command   <SHELL_COMMAND>
 ```
 
 #### Options
 
 | Option      | Explanation          | Required |
 |-------------|----------------------|----------|
+| --region    | REGION  Name         | YES      |
 | --cluster   | ECS Cluster Name     | YES      |
 | --service   | ECS Service Name     | YES      |
 | --container | Container Name       | YES      |
@@ -61,7 +69,7 @@ $ miniecs exec \
 A sub-command to get table information of ecs cluster(s) and service(s).
 
 ```shell
-$ miniecs list
+$ miniecs list --region <REGION_NAME>
 ```
 
 ## Reference
