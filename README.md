@@ -35,7 +35,7 @@ Run 'login' sub-command.
 $ miniecs login --region <REGION_NAME>
 ```
 
-You can specify Cluster.
+You can also specify cluster.
 
 ```shell
 $ miniecs login --region <REGION_NAME> --cluster <CLUSTER_NAME>
@@ -43,7 +43,7 @@ $ miniecs login --region <REGION_NAME> --cluster <CLUSTER_NAME>
 
 ### Execute Sub-Command
 
-A sub-command to exec command on container by specifying any resources.
+A sub-command to execute command in container.
 
 ```shell
 $ miniecs exec \
@@ -54,29 +54,13 @@ $ miniecs exec \
     --command   <SHELL_COMMAND>
 ```
 
-#### Options
-
-| Option      | Explanation          | Required |
-|-------------|----------------------|----------|
-| --region    | REGION  Name         | YES      |
-| --cluster   | ECS Cluster Name     | YES      |
-| --service   | ECS Service Name     | YES      |
-| --container | Container Name       | YES      |
-| --command   | Command              | YES      |
-
 ### List Sub-Command
 
-A sub-command to get table information of ecs cluster(s) and service(s).
+A sub-command to get table information of ecs cluster(s), service(s) and container(s).
 
 ```shell
 $ miniecs list --region <REGION_NAME>
 ```
-
-## Reference
-
-This code's internal pkg is based on the aws copilot-cli code (Apache License 2.0)
-
-https://github.com/aws/copilot-cli
 
 ## License
 
