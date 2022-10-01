@@ -37,55 +37,7 @@ var loginCmd = &cobra.Command{
 			},
 		}))
 
-		// without specifying cluster, will search all clusters
-		if loginSetFlags.cluster == "" {
-			if err := e.ListClusters(); err != nil {
-				log.Fatal(err)
-			}
-			for _, cluster := range e.Clusters {
-				if err := e.ListServices(cluster); err != nil {
-					log.Fatal(err)
-				}
-				execECS.Cluster = cluster
-				for _, service := range e.Services {
-					if err := e.GetTaskDefinition(cluster, service); err != nil {
-						log.Fatal(err)
-					}
-					if err := e.GetContainerName(e.TaskDefinition); err != nil {
-						log.Fatal(err)
-					}
-					for i := range e.Containers {
-						execECS.Cluster = cluster
-						execECS.Service = service
-						execECS.TaskDefinition = e.TaskDefinition
-						execECS.Container = e.Containers[i]
-						execECSs = append(execECSs, execECS)
-					}
-					e.Containers = nil
-				}
-			}
-		} else { // with specifying cluster option
-			if err := e.ListServices(loginSetFlags.cluster); err != nil {
-				log.Fatal(err)
-			}
-			execECS.Cluster = loginSetFlags.cluster
-			for _, service := range e.Services {
-				if err := e.GetTaskDefinition(loginSetFlags.cluster, service); err != nil {
-					log.Fatal(err)
-				}
-				if err := e.GetContainerName(e.TaskDefinition); err != nil {
-					log.Fatal(err)
-				}
-				for i := range e.Containers {
-					execECS.Cluster = loginSetFlags.cluster
-					execECS.Service = service
-					execECS.TaskDefinition = e.TaskDefinition
-					execECS.Container = e.Containers[i]
-					execECSs = append(execECSs, execECS)
-				}
-				e.Containers = nil
-			}
-		}
+		execECSs = execECS.listECSs(e)
 
 		idx, err := fuzzyfinder.FindMulti(
 			execECSs,
@@ -123,6 +75,51 @@ var loginCmd = &cobra.Command{
 			log.Fatal(err)
 		}
 	},
+}
+
+func (l *ExecECS) listECSs(e *myecs.ECS) ExecECSs {
+	var execECSs ExecECSs
+
+	if loginSetFlags.cluster == "" {
+		if err := e.ListClusters(); err != nil {
+			log.Fatal(err)
+		}
+		for _, cluster := range e.Clusters {
+			if err := e.ListServices(cluster); err != nil {
+				log.Fatal(err)
+			}
+			l.Cluster = cluster
+			execECSs = l.listECSsByServices(e)
+		}
+	} else {
+		if err := e.ListServices(loginSetFlags.cluster); err != nil {
+			log.Fatal(err)
+		}
+		l.Cluster = loginSetFlags.cluster
+		execECSs = l.listECSsByServices(e)
+	}
+	return execECSs
+}
+
+func (l *ExecECS) listECSsByServices(e *myecs.ECS) ExecECSs {
+	var execECSs ExecECSs
+
+	for _, service := range e.Services {
+		if err := e.GetTaskDefinition(l.Cluster, service); err != nil {
+			log.Fatal(err)
+		}
+		if err := e.GetContainerName(e.TaskDefinition); err != nil {
+			log.Fatal(err)
+		}
+		for i := range e.Containers {
+			l.Service = service
+			l.TaskDefinition = e.TaskDefinition
+			l.Container = e.Containers[i]
+			execECSs = append(execECSs, *l)
+		}
+		e.Containers = nil
+	}
+	return execECSs
 }
 
 func (l *ExecECS) login(e *myecs.ECS) error {
