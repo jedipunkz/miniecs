@@ -35,7 +35,7 @@ Run 'login' sub-command.
 $ miniecs login --region <REGION_NAME>
 ```
 
-You can also specify cluster.
+You can also specify a cluster.
 
 ```shell
 $ miniecs login --region <REGION_NAME> --cluster <CLUSTER_NAME>
