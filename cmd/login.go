@@ -2,16 +2,13 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	myecs "github.com/jedipunkz/miniecs/internal/pkg/aws/ecs"
 	"github.com/ktr0731/go-fuzzyfinder"
-	"github.com/mitchellh/go-homedir"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 const (
@@ -22,6 +19,7 @@ const (
 var loginSetFlags struct {
 	region  string
 	cluster string
+	shell   string
 }
 
 // loginCmd represents the login command
@@ -31,10 +29,6 @@ var loginCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		var execECS ExecECS
 		var execECSs ExecECSs
-
-		if err := execECS.getShell(); err != nil {
-			log.Fatal(err)
-		}
 
 		e := myecs.NewEcs(session.NewSessionWithOptions(session.Options{
 			Config: aws.Config{
@@ -131,33 +125,17 @@ var loginCmd = &cobra.Command{
 	},
 }
 
-func (l *ExecECS) getShell() error {
-	l.Shell = defaultShell
-
-	home, err := homedir.Dir()
-	if err != nil {
-		log.Fatal(err)
-	}
-	if _, err := os.Stat(home + "/" + confFile + ".yaml"); err == nil {
-		viper.SetConfigType("yaml")
-		viper.AddConfigPath(home)
-		viper.SetConfigName(confFile)
-
-		if err := viper.ReadInConfig(); err != nil {
-			log.Fatal(err)
-			return err
-		}
-		l.Shell = viper.GetString("shell")
-	}
-	return nil
-}
-
 func (l *ExecECS) login(e *myecs.ECS) error {
 	in := myecs.ExecuteCommandInput{}
 	in.Cluster = l.Cluster
 	in.Container = l.Container
 	in.Task = l.Task
-	in.Command = l.Shell
+	if loginSetFlags.shell != "" {
+		in.Command = loginSetFlags.shell
+	} else {
+		in.Command = defaultShell
+	}
+
 	log.WithFields(log.Fields{
 		"cluster":   l.Cluster,
 		"service":   l.Service,
@@ -182,4 +160,6 @@ func init() {
 	}
 	loginCmd.Flags().StringVarP(
 		&loginSetFlags.cluster, "cluster", "", "", "ECS Cluster Name")
+	loginCmd.Flags().StringVarP(
+		&loginSetFlags.shell, "shell", "", "", "Login Shell")
 }
