@@ -64,11 +64,13 @@ var loginCmd = &cobra.Command{
 		execECS.Cluster = execECSs[idx[0]].Cluster
 		execECS.Service = execECSs[idx[0]].Service
 		execECS.Container = execECSs[idx[0]].Container
+
 		if err := e.GetTask(
 			execECSs[idx[0]].Cluster,
 			execECSs[idx[0]].TaskDefinition); err != nil {
 			log.Fatal(err)
 		}
+
 		execECS.Task = *e.Task.TaskArns[0]
 
 		if err = execECS.login(e); err != nil {
@@ -84,6 +86,7 @@ func (l *ExecECS) listECSs(e *myecs.ECS) ExecECSs {
 		if err := e.ListClusters(); err != nil {
 			log.Fatal(err)
 		}
+
 		for _, cluster := range e.Clusters {
 			if err := e.ListServices(cluster); err != nil {
 				log.Fatal(err)
@@ -91,6 +94,7 @@ func (l *ExecECS) listECSs(e *myecs.ECS) ExecECSs {
 			l.Cluster = cluster
 			execECSs = l.listECSsByServices(e)
 		}
+
 	} else {
 		if err := e.ListServices(loginSetFlags.cluster); err != nil {
 			log.Fatal(err)
@@ -98,6 +102,7 @@ func (l *ExecECS) listECSs(e *myecs.ECS) ExecECSs {
 		l.Cluster = loginSetFlags.cluster
 		execECSs = l.listECSsByServices(e)
 	}
+
 	return execECSs
 }
 
@@ -108,17 +113,21 @@ func (l *ExecECS) listECSsByServices(e *myecs.ECS) ExecECSs {
 		if err := e.GetTaskDefinition(l.Cluster, service); err != nil {
 			log.Fatal(err)
 		}
+
 		if err := e.GetContainerName(e.TaskDefinition); err != nil {
 			log.Fatal(err)
 		}
+
 		for i := range e.Containers {
 			l.Service = service
 			l.TaskDefinition = e.TaskDefinition
 			l.Container = e.Containers[i]
 			execECSs = append(execECSs, *l)
 		}
+
 		e.Containers = nil
 	}
+
 	return execECSs
 }
 
@@ -127,6 +136,7 @@ func (l *ExecECS) login(e *myecs.ECS) error {
 	in.Cluster = l.Cluster
 	in.Container = l.Container
 	in.Task = l.Task
+
 	if loginSetFlags.shell != "" {
 		in.Command = loginSetFlags.shell
 	} else {
@@ -145,6 +155,7 @@ func (l *ExecECS) login(e *myecs.ECS) error {
 		log.Fatal(err)
 		return err
 	}
+
 	return nil
 }
 
