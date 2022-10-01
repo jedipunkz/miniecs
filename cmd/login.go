@@ -94,7 +94,6 @@ func (l *ExecECS) listECSs(e *myecs.ECS) ExecECSs {
 			l.Cluster = cluster
 			execECSs = l.listECSsByServices(e)
 		}
-
 	} else {
 		if err := e.ListServices(loginSetFlags.cluster); err != nil {
 			log.Fatal(err)
