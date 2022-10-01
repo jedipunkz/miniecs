@@ -23,13 +23,13 @@ go install github.com/jedipunkz/miniecs@latest
 
 A sub-command to login ecs container with incremental searching.
 
-Run 'login' sub-command to login to container. If you don't specify cluster, miniecs find all of your cluster in region.
+Run 'login' sub-command to login to container. If you don't specify cluster, miniecs find all of your cluster in region. 'region' option is requred.
 
 ```shell
 $ miniecs login --region <REGION_NAME>
 ```
 
-You can also specify a cluster and shell. Default shell is 'sh'.
+You can also specify a cluster and shell. These options are optional. Default shell is 'sh'.
 
 ```shell
 $ miniecs login --region <REGION_NAME> --cluster <CLUSTER_NAME> --shell <SHELL>
