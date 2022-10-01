@@ -32,7 +32,7 @@ $ miniecs login --region <REGION_NAME>
 You can also specify a cluster and shell. Default shell is 'sh'.
 
 ```shell
-$ miniecs login --region <REGION_NAME> --cluster <CLUSTER_NAME> --shell bash
+$ miniecs login --region <REGION_NAME> --cluster <CLUSTER_NAME> --shell <SHELL>
 ```
 
 ### Execute Sub-Command
