@@ -20,6 +20,7 @@ brews:
   - tap:
       owner: jedipunkz
       name: homebrew-miniecs
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     commit_author:
       name: goreleasebot
       email: goreleaser@carlosbecker.com
