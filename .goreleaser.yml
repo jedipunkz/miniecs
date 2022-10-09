@@ -19,7 +19,7 @@ builds:
 brews:
   - tap:
       owner: jedipunkz
-      name: miniecs
+      name: homebrew-miniecs
     commit_author:
       name: goreleasebot
       email: goreleaser@carlosbecker.com
