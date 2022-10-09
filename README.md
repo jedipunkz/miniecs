@@ -13,6 +13,14 @@ miniecs is a CLI tool that allows you to fuzzy finder incremental search your ec
 
 ## Installation
 
+### Homebrew
+
+```shell
+brew install jedipunkz/miniecs/miniecs
+```
+
+### Go Install
+
 ```shell
 go install github.com/jedipunkz/miniecs@latest
 ```
