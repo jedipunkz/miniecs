@@ -1,0 +1,32 @@
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - 386
+      - amd64
+      - arm
+      - amr64
+    mod_timestamp: '{{ .CommitTimestamp }}'
+
+brews:
+  - tap:
+      owner: jedipunkz
+      name: miniecs
+    commit_author:
+      name: goreleasebot
+      email: goreleaser@carlosbecker.com
+    description: "AWS ECS Login, Exec CLI"
+    homepage: "https://github.com/jedipunkz/miniecs"
+    folder: Formula
+    install: |
+      bin.install "miniecs"
+    test: |
+      system "${bin}/miniecs --help"
