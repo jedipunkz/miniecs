@@ -30,7 +30,7 @@ jobs:
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v3
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.ACCESS_TOKEN }}
         with:
           version: latest
           args: release --rm-dist --config .goreleaser.yml
