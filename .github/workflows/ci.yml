@@ -13,7 +13,7 @@ jobs:
         id: go
 
       - name: Check Out
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3.1.0
 
       - name: Cache
         uses: actions/cache@v3.0.8
@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check Out
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3.1.0
 
       - name: Build
         run: go build ./...
@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3.1.0
 
       - name: Test
         run: go test ./... -v
@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check Out
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3.1.0
 
       - name: Golangci-Lint
         uses: golangci/golangci-lint-action@v3
