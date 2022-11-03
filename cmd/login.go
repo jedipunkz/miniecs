@@ -92,41 +92,47 @@ func (l *ExecECS) listECSs(e *myecs.ECS) ExecECSs {
 				log.Fatal(err)
 			}
 			l.Cluster = cluster
-			execECSs = l.listECSsByServices(e)
+			for _, service := range e.Services {
+				if err := e.GetTaskDefinition(l.Cluster, service); err != nil {
+					log.Fatal(err)
+				}
+
+				if err := e.GetContainerName(e.TaskDefinition); err != nil {
+					log.Fatal(err)
+				}
+
+				for i := range e.Containers {
+					l.Service = service
+					l.TaskDefinition = e.TaskDefinition
+					l.Container = e.Containers[i]
+					execECSs = append(execECSs, *l)
+				}
+				e.Containers = nil
+			}
 		}
 	} else {
 		if err := e.ListServices(loginSetFlags.cluster); err != nil {
 			log.Fatal(err)
 		}
 		l.Cluster = loginSetFlags.cluster
-		execECSs = l.listECSsByServices(e)
+		for _, service := range e.Services {
+			if err := e.GetTaskDefinition(l.Cluster, service); err != nil {
+				log.Fatal(err)
+			}
+
+			if err := e.GetContainerName(e.TaskDefinition); err != nil {
+				log.Fatal(err)
+			}
+
+			for i := range e.Containers {
+				l.Service = service
+				l.TaskDefinition = e.TaskDefinition
+				l.Container = e.Containers[i]
+				execECSs = append(execECSs, *l)
+			}
+			e.Containers = nil
+		}
 	}
-
-	return execECSs
-}
-
-func (l *ExecECS) listECSsByServices(e *myecs.ECS) ExecECSs {
-	var execECSs ExecECSs
-
-	for _, service := range e.Services {
-		if err := e.GetTaskDefinition(l.Cluster, service); err != nil {
-			log.Fatal(err)
-		}
-
-		if err := e.GetContainerName(e.TaskDefinition); err != nil {
-			log.Fatal(err)
-		}
-
-		for i := range e.Containers {
-			l.Service = service
-			l.TaskDefinition = e.TaskDefinition
-			l.Container = e.Containers[i]
-			execECSs = append(execECSs, *l)
-		}
-
-		e.Containers = nil
-	}
-
 	return execECSs
 }
 
