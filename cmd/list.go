@@ -32,9 +32,7 @@ var listCmd = &cobra.Command{
 			log.Fatal(err)
 		}
 
-		var ecsMatrix [][]string
-
-		ecsMatrix = getECSMatrix(e)
+		ecsMatrix := getECSMatrix(e)
 
 		table := tablewriter.NewWriter(os.Stdout)
 		table.SetHeader([]string{
