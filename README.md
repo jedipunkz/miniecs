@@ -2,7 +2,8 @@
 
 miniecs is a CLI tool that allows you to fuzzy finder incremental search your ecs envs and login to your container. And you can execute any commands on your container.
 
-[![GitHub Workflow Status](https://img.shields.io/github/workflow/status/jedipunkz/miniecs/Go-CI?style=flat-square)](https://github.com/jedipunkz/miniecs/actions?query=workflow%3AGo-CI)
+![Go-CI](https://github.com/jedipunkz/miniecs/workflows/Go-CI/badge.svg)
+![CodeQL](https://github.com/jedipunkz/miniecs/workflows/CodeQL/badge.svg)
 
 <img src="https://raw.githubusercontent.com/jedipunkz/miniecs/main/pix/miniecs.gif">
 
