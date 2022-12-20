@@ -1,5 +1,5 @@
-github.com/aws/aws-sdk-go v1.44.142 h1:KZ1/FDwCSft1DuNllFaBtWpcG0CW2NgQjvOrE1TdlXE=
-github.com/aws/aws-sdk-go v1.44.142/go.mod h1:aVsgQcEevwlmQ7qHE9I3h+dtQgpqhFB+i8Phjh7fkwI=
+github.com/aws/aws-sdk-go v1.44.162 h1:hKAd+X+/BLxVMzH+4zKxbQcQQGrk2UhFX0OTu1Mhon8=
+github.com/aws/aws-sdk-go v1.44.162/go.mod h1:aVsgQcEevwlmQ7qHE9I3h+dtQgpqhFB+i8Phjh7fkwI=
 github.com/cpuguy83/go-md2man/v2 v2.0.2/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46tRHOmNcaadrF8o=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
