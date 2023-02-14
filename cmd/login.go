@@ -42,8 +42,8 @@ var loginCmd = &cobra.Command{
 		idx, err := fuzzyfinder.FindMulti(
 			execECSs,
 			func(i int) string {
-				return execECSs[i].Cluster + "::" +
-					execECSs[i].Service + "::" +
+				return execECSs[i].Cluster + " " +
+					execECSs[i].Service + " " +
 					execECSs[i].Container
 			},
 			fuzzyfinder.WithPreviewWindow(func(i, w, h int) string {
