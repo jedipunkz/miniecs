@@ -37,7 +37,7 @@ var loginCmd = &cobra.Command{
 			},
 		}))
 
-		ecsInfos = ecsInfo.listECSs(e)
+		ecsInfos = ecsInfo.fetchListECSs(e)
 
 		idx, err := fuzzyfinder.FindMulti(
 			ecsInfos,
@@ -79,7 +79,7 @@ var loginCmd = &cobra.Command{
 	},
 }
 
-func (l *ECSInfo) listECSs(e *myecs.ECS) ECSInfos {
+func (l *ECSInfo) fetchListECSs(e *myecs.ECS) ECSInfos {
 	var ecsInfos ECSInfos
 
 	clusters := []string{loginSetFlags.cluster}
