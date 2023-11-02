@@ -23,35 +23,37 @@ var execCmd = &cobra.Command{
 	Short: "execute ecs subcommand",
 	Long: `a subcommand for ecs execute to login ecs container on task.
 with parameters where ecs cluster, container name and command.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		var ecsInfo ECSInfo
+	Run: runExecCmd,
+}
 
-		e := myecs.NewEcs(session.NewSessionWithOptions(session.Options{
-			Config: aws.Config{
-				CredentialsChainVerboseErrors: aws.Bool(true),
-				Region:                        aws.String(setFlags.region),
-			},
-		}))
+func runExecCmd(cmd *cobra.Command, args []string) {
+	var ecsInfo ECSInfo
 
-		if err := e.GetTaskDefinition(setFlags.cluster, setFlags.service); err != nil {
-			log.Fatal(err)
-		}
+	e := myecs.NewEcs(session.NewSessionWithOptions(session.Options{
+		Config: aws.Config{
+			CredentialsChainVerboseErrors: aws.Bool(true),
+			Region:                        aws.String(setFlags.region),
+		},
+	}))
 
-		ecsInfo.Cluster = setFlags.cluster
-		ecsInfo.Service = setFlags.service
-		ecsInfo.Container = setFlags.container
-		ecsInfo.Command = setFlags.command
+	if err := e.GetTaskDefinition(setFlags.cluster, setFlags.service); err != nil {
+		log.Fatal(err)
+	}
 
-		if err := e.GetTask(ecsInfo.Cluster, e.TaskDefinition); err != nil {
-			log.Fatal(err)
-		}
+	ecsInfo.Cluster = setFlags.cluster
+	ecsInfo.Service = setFlags.service
+	ecsInfo.Container = setFlags.container
+	ecsInfo.Command = setFlags.command
 
-		ecsInfo.Task = *e.Task.TaskArns[0]
+	if err := e.GetTask(ecsInfo.Cluster, e.TaskDefinition); err != nil {
+		log.Fatal(err)
+	}
 
-		if err := ecsInfo.exec(e); err != nil {
-			log.Fatal(err)
-		}
-	},
+	ecsInfo.Task = *e.Task.TaskArns[0]
+
+	if err := ecsInfo.exec(e); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func (l *ECSInfo) exec(e *myecs.ECS) error {
