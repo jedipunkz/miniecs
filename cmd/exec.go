@@ -23,38 +23,40 @@ var execCmd = &cobra.Command{
 	Short: "execute ecs subcommand",
 	Long: `a subcommand for ecs execute to login ecs container on task.
 with parameters where ecs cluster, container name and command.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		var execECS ExecECS
-
-		e := myecs.NewEcs(session.NewSessionWithOptions(session.Options{
-			Config: aws.Config{
-				CredentialsChainVerboseErrors: aws.Bool(true),
-				Region:                        aws.String(setFlags.region),
-			},
-		}))
-
-		if err := e.GetTaskDefinition(setFlags.cluster, setFlags.service); err != nil {
-			log.Fatal(err)
-		}
-
-		execECS.Cluster = setFlags.cluster
-		execECS.Service = setFlags.service
-		execECS.Container = setFlags.container
-		execECS.Command = setFlags.command
-
-		if err := e.GetTask(execECS.Cluster, e.TaskDefinition); err != nil {
-			log.Fatal(err)
-		}
-
-		execECS.Task = *e.Task.TaskArns[0]
-
-		if err := execECS.exec(e); err != nil {
-			log.Fatal(err)
-		}
-	},
+	Run: runExecCmd,
 }
 
-func (l *ExecECS) exec(e *myecs.ECS) error {
+func runExecCmd(cmd *cobra.Command, args []string) {
+	var ecsInfo ECSInfo
+
+	e := myecs.NewEcs(session.NewSessionWithOptions(session.Options{
+		Config: aws.Config{
+			CredentialsChainVerboseErrors: aws.Bool(true),
+			Region:                        aws.String(setFlags.region),
+		},
+	}))
+
+	if err := e.GetTaskDefinition(setFlags.cluster, setFlags.service); err != nil {
+		log.Fatal(err)
+	}
+
+	ecsInfo.Cluster = setFlags.cluster
+	ecsInfo.Service = setFlags.service
+	ecsInfo.Container = setFlags.container
+	ecsInfo.Command = setFlags.command
+
+	if err := e.GetTask(ecsInfo.Cluster, e.TaskDefinition); err != nil {
+		log.Fatal(err)
+	}
+
+	ecsInfo.Task = *e.Task.TaskArns[0]
+
+	if err := ecsInfo.exec(e); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func (l *ECSInfo) exec(e *myecs.ECS) error {
 	in := myecs.ExecuteCommandInput{}
 	in.Cluster = l.Cluster
 	in.Container = l.Container

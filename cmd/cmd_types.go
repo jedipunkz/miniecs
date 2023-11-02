@@ -1,7 +1,7 @@
 package cmd
 
 // ExecECS is struct for login info to ECS Container
-type ExecECS struct {
+type ECSInfo struct {
 	Cluster        string
 	Service        string
 	Task           string
@@ -12,4 +12,4 @@ type ExecECS struct {
 }
 
 // ExecECSs is struct for list of ExecECS
-type ExecECSs []ExecECS
+type ECSInfos []ECSInfo
