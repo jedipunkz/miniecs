@@ -26,57 +26,59 @@ var loginSetFlags struct {
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "login cluster, service",
-	Run: func(cmd *cobra.Command, args []string) {
-		var ecsInfo ECSInfo
-		var ecsInfos ECSInfos
+	Run:   runLoginCmd,
+}
 
-		e := myecs.NewEcs(session.NewSessionWithOptions(session.Options{
-			Config: aws.Config{
-				CredentialsChainVerboseErrors: aws.Bool(true),
-				Region:                        aws.String(loginSetFlags.region),
-			},
+func runLoginCmd(cmd *cobra.Command, args []string) {
+	var ecsInfo ECSInfo
+	var ecsInfos ECSInfos
+
+	e := myecs.NewEcs(session.NewSessionWithOptions(session.Options{
+		Config: aws.Config{
+			CredentialsChainVerboseErrors: aws.Bool(true),
+			Region:                        aws.String(loginSetFlags.region),
+		},
+	}))
+
+	ecsInfos = ecsInfo.fetchListECSs(e)
+
+	idx, err := fuzzyfinder.FindMulti(
+		ecsInfos,
+		func(i int) string {
+			return ecsInfos[i].Cluster + " " +
+				ecsInfos[i].Service + " " +
+				ecsInfos[i].Container
+		},
+		fuzzyfinder.WithPreviewWindow(func(i, w, h int) string {
+			if i == -1 {
+				return ""
+			}
+			return fmt.Sprintf(
+				"Cluster: %s\nService: %s\nContainer: %s\nCommand: %s",
+				ecsInfos[i].Cluster,
+				ecsInfos[i].Service,
+				ecsInfos[i].Container,
+				ecsInfo.Shell)
 		}))
+	if err != nil {
+		log.Fatal(err)
+	}
 
-		ecsInfos = ecsInfo.fetchListECSs(e)
+	ecsInfo.Cluster = ecsInfos[idx[0]].Cluster
+	ecsInfo.Service = ecsInfos[idx[0]].Service
+	ecsInfo.Container = ecsInfos[idx[0]].Container
 
-		idx, err := fuzzyfinder.FindMulti(
-			ecsInfos,
-			func(i int) string {
-				return ecsInfos[i].Cluster + " " +
-					ecsInfos[i].Service + " " +
-					ecsInfos[i].Container
-			},
-			fuzzyfinder.WithPreviewWindow(func(i, w, h int) string {
-				if i == -1 {
-					return ""
-				}
-				return fmt.Sprintf(
-					"Cluster: %s\nService: %s\nContainer: %s\nCommand: %s",
-					ecsInfos[i].Cluster,
-					ecsInfos[i].Service,
-					ecsInfos[i].Container,
-					ecsInfo.Shell)
-			}))
-		if err != nil {
-			log.Fatal(err)
-		}
+	if err := e.GetTask(
+		ecsInfos[idx[0]].Cluster,
+		ecsInfos[idx[0]].TaskDefinition); err != nil {
+		log.Fatal(err)
+	}
 
-		ecsInfo.Cluster = ecsInfos[idx[0]].Cluster
-		ecsInfo.Service = ecsInfos[idx[0]].Service
-		ecsInfo.Container = ecsInfos[idx[0]].Container
+	ecsInfo.Task = *e.Task.TaskArns[0]
 
-		if err := e.GetTask(
-			ecsInfos[idx[0]].Cluster,
-			ecsInfos[idx[0]].TaskDefinition); err != nil {
-			log.Fatal(err)
-		}
-
-		ecsInfo.Task = *e.Task.TaskArns[0]
-
-		if err = ecsInfo.login(e); err != nil {
-			log.Fatal(err)
-		}
-	},
+	if err = ecsInfo.login(e); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func (l *ECSInfo) fetchListECSs(e *myecs.ECS) ECSInfos {
