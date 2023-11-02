@@ -82,39 +82,19 @@ var loginCmd = &cobra.Command{
 func (l *ExecECS) listECSs(e *myecs.ECS) ExecECSs {
 	var execECSs ExecECSs
 
+	clusters := []string{loginSetFlags.cluster}
 	if loginSetFlags.cluster == "" {
 		if err := e.ListClusters(); err != nil {
 			log.Fatal(err)
 		}
+		clusters = e.Clusters
+	}
 
-		for _, cluster := range e.Clusters {
-			if err := e.ListServices(cluster); err != nil {
-				log.Fatal(err)
-			}
-			l.Cluster = cluster
-			for _, service := range e.Services {
-				if err := e.GetTaskDefinition(l.Cluster, service); err != nil {
-					log.Fatal(err)
-				}
-
-				if err := e.GetContainerName(e.TaskDefinition); err != nil {
-					log.Fatal(err)
-				}
-
-				for i := range e.Containers {
-					l.Service = service
-					l.TaskDefinition = e.TaskDefinition
-					l.Container = e.Containers[i]
-					execECSs = append(execECSs, *l)
-				}
-				e.Containers = nil
-			}
-		}
-	} else {
-		if err := e.ListServices(loginSetFlags.cluster); err != nil {
+	for _, cluster := range clusters {
+		if err := e.ListServices(cluster); err != nil {
 			log.Fatal(err)
 		}
-		l.Cluster = loginSetFlags.cluster
+		l.Cluster = cluster
 		for _, service := range e.Services {
 			if err := e.GetTaskDefinition(l.Cluster, service); err != nil {
 				log.Fatal(err)
