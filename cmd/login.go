@@ -27,8 +27,8 @@ var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "login cluster, service",
 	Run: func(cmd *cobra.Command, args []string) {
-		var execECS ExecECS
-		var execECSs ExecECSs
+		var ecsInfo ECSInfo
+		var ecsInfos ECSInfos
 
 		e := myecs.NewEcs(session.NewSessionWithOptions(session.Options{
 			Config: aws.Config{
@@ -37,14 +37,14 @@ var loginCmd = &cobra.Command{
 			},
 		}))
 
-		execECSs = execECS.listECSs(e)
+		ecsInfos = ecsInfo.listECSs(e)
 
 		idx, err := fuzzyfinder.FindMulti(
-			execECSs,
+			ecsInfos,
 			func(i int) string {
-				return execECSs[i].Cluster + " " +
-					execECSs[i].Service + " " +
-					execECSs[i].Container
+				return ecsInfos[i].Cluster + " " +
+					ecsInfos[i].Service + " " +
+					ecsInfos[i].Container
 			},
 			fuzzyfinder.WithPreviewWindow(func(i, w, h int) string {
 				if i == -1 {
@@ -52,35 +52,35 @@ var loginCmd = &cobra.Command{
 				}
 				return fmt.Sprintf(
 					"Cluster: %s\nService: %s\nContainer: %s\nCommand: %s",
-					execECSs[i].Cluster,
-					execECSs[i].Service,
-					execECSs[i].Container,
-					execECS.Shell)
+					ecsInfos[i].Cluster,
+					ecsInfos[i].Service,
+					ecsInfos[i].Container,
+					ecsInfo.Shell)
 			}))
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		execECS.Cluster = execECSs[idx[0]].Cluster
-		execECS.Service = execECSs[idx[0]].Service
-		execECS.Container = execECSs[idx[0]].Container
+		ecsInfo.Cluster = ecsInfos[idx[0]].Cluster
+		ecsInfo.Service = ecsInfos[idx[0]].Service
+		ecsInfo.Container = ecsInfos[idx[0]].Container
 
 		if err := e.GetTask(
-			execECSs[idx[0]].Cluster,
-			execECSs[idx[0]].TaskDefinition); err != nil {
+			ecsInfos[idx[0]].Cluster,
+			ecsInfos[idx[0]].TaskDefinition); err != nil {
 			log.Fatal(err)
 		}
 
-		execECS.Task = *e.Task.TaskArns[0]
+		ecsInfo.Task = *e.Task.TaskArns[0]
 
-		if err = execECS.login(e); err != nil {
+		if err = ecsInfo.login(e); err != nil {
 			log.Fatal(err)
 		}
 	},
 }
 
-func (l *ExecECS) listECSs(e *myecs.ECS) ExecECSs {
-	var execECSs ExecECSs
+func (l *ECSInfo) listECSs(e *myecs.ECS) ECSInfos {
+	var ecsInfos ECSInfos
 
 	clusters := []string{loginSetFlags.cluster}
 	if loginSetFlags.cluster == "" {
@@ -108,15 +108,15 @@ func (l *ExecECS) listECSs(e *myecs.ECS) ExecECSs {
 				l.Service = service
 				l.TaskDefinition = e.TaskDefinition
 				l.Container = e.Containers[i]
-				execECSs = append(execECSs, *l)
+				ecsInfos = append(ecsInfos, *l)
 			}
 			e.Containers = nil
 		}
 	}
-	return execECSs
+	return ecsInfos
 }
 
-func (l *ExecECS) login(e *myecs.ECS) error {
+func (l *ECSInfo) login(e *myecs.ECS) error {
 	in := myecs.ExecuteCommandInput{}
 	in.Cluster = l.Cluster
 	in.Container = l.Container

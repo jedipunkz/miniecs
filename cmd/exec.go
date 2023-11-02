@@ -24,7 +24,7 @@ var execCmd = &cobra.Command{
 	Long: `a subcommand for ecs execute to login ecs container on task.
 with parameters where ecs cluster, container name and command.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		var execECS ExecECS
+		var ecsInfo ECSInfo
 
 		e := myecs.NewEcs(session.NewSessionWithOptions(session.Options{
 			Config: aws.Config{
@@ -37,24 +37,24 @@ with parameters where ecs cluster, container name and command.`,
 			log.Fatal(err)
 		}
 
-		execECS.Cluster = setFlags.cluster
-		execECS.Service = setFlags.service
-		execECS.Container = setFlags.container
-		execECS.Command = setFlags.command
+		ecsInfo.Cluster = setFlags.cluster
+		ecsInfo.Service = setFlags.service
+		ecsInfo.Container = setFlags.container
+		ecsInfo.Command = setFlags.command
 
-		if err := e.GetTask(execECS.Cluster, e.TaskDefinition); err != nil {
+		if err := e.GetTask(ecsInfo.Cluster, e.TaskDefinition); err != nil {
 			log.Fatal(err)
 		}
 
-		execECS.Task = *e.Task.TaskArns[0]
+		ecsInfo.Task = *e.Task.TaskArns[0]
 
-		if err := execECS.exec(e); err != nil {
+		if err := ecsInfo.exec(e); err != nil {
 			log.Fatal(err)
 		}
 	},
 }
 
-func (l *ExecECS) exec(e *myecs.ECS) error {
+func (l *ECSInfo) exec(e *myecs.ECS) error {
 	in := myecs.ExecuteCommandInput{}
 	in.Cluster = l.Cluster
 	in.Container = l.Container
