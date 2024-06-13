@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	myecs "github.com/jedipunkz/miniecs/internal/pkg/aws/ecs"
@@ -29,11 +31,15 @@ with parameters where ecs cluster, container name and command.`,
 func runExecCmd(cmd *cobra.Command, args []string) {
 	var ecsInfo ECSInfo
 
+	profile := os.Getenv("AWS_PROFILE")
+
 	e := myecs.NewEcs(session.NewSessionWithOptions(session.Options{
 		Config: aws.Config{
 			CredentialsChainVerboseErrors: aws.Bool(true),
 			Region:                        aws.String(setFlags.region),
 		},
+		SharedConfigState: session.SharedConfigEnable,
+		Profile:           profile,
 	}))
 
 	if err := e.GetTaskDefinition(setFlags.cluster, setFlags.service); err != nil {
