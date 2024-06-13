@@ -22,11 +22,15 @@ var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "list subcommand",
 	Run: func(cmd *cobra.Command, args []string) {
+		profile := os.Getenv("AWS_PROFILE")
+
 		e := myecs.NewEcs(session.NewSessionWithOptions(session.Options{
 			Config: aws.Config{
 				CredentialsChainVerboseErrors: aws.Bool(true),
 				Region:                        aws.String(listSetFlags.region),
 			},
+			SharedConfigState: session.SharedConfigEnable,
+			Profile:           profile,
 		}))
 		if err := e.ListClusters(); err != nil {
 			log.Fatal(err)
