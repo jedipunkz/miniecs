@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -33,11 +34,15 @@ func runLoginCmd(cmd *cobra.Command, args []string) {
 	var ecsInfo ECSInfo
 	var ecsInfos ECSInfos
 
+	profile := os.Getenv("AWS_PROFILE")
+
 	e := myecs.NewEcs(session.NewSessionWithOptions(session.Options{
 		Config: aws.Config{
 			CredentialsChainVerboseErrors: aws.Bool(true),
 			Region:                        aws.String(loginSetFlags.region),
 		},
+		SharedConfigState: session.SharedConfigEnable,
+		Profile:           profile,
 	}))
 
 	ecsInfos = ecsInfo.fetchListECSs(e)
