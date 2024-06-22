@@ -1,3 +1,6 @@
+# .goreleaser.yml
+---
+version: 2
 before:
   hooks:
     - go mod tidy
@@ -16,16 +19,16 @@ builds:
     mod_timestamp: '{{ .CommitTimestamp }}'
 
 brews:
-  - tap:
+  - commit_author:
+      name: goreleasebot
+      email: bot@goreleaser.com
+    repository:
       owner: jedipunkz
       name: homebrew-miniecs
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    commit_author:
-      name: goreleasebot
-      email: goreleaser@carlosbecker.com
-    description: "AWS ECS Login, Exec CLI"
+      branch: main
+      token: "{{ .Env.GITHUB_PERSONAL_AUTH_TOKEN }}"
+    description: "Miniecs: AWS ECS Login, Exec CLI"
     homepage: "https://github.com/jedipunkz/miniecs"
-    folder: Formula
     install: |
       bin.install "miniecs"
     test: |
