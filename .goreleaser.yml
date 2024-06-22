@@ -26,7 +26,7 @@ brews:
       owner: jedipunkz
       name: homebrew-miniecs
       branch: main
-      token: "{{ .Env.GITHUB_PERSONAL_AUTH_TOKEN }}"
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     description: "Miniecs: AWS ECS Login, Exec CLI"
     homepage: "https://github.com/jedipunkz/miniecs"
     install: |
