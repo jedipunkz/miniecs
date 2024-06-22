@@ -29,6 +29,7 @@ brews:
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     description: "Miniecs: AWS ECS Login, Exec CLI"
     homepage: "https://github.com/jedipunkz/miniecs"
+    directory: Formula
     install: |
       bin.install "miniecs"
     test: |
