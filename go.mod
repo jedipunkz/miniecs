@@ -3,7 +3,7 @@ module github.com/jedipunkz/miniecs
 go 1.22.4
 
 require (
-	github.com/aws/aws-sdk-go v1.54.6
+	github.com/aws/aws-sdk-go v1.55.3
 	github.com/ktr0731/go-fuzzyfinder v0.8.0
 	github.com/olekukonko/tablewriter v0.0.5
 	github.com/sirupsen/logrus v1.9.3
