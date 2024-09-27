@@ -100,36 +100,40 @@ type ExecuteCommandInput struct {
 //		return err
 //	}
 func (e *ECSResource) ExecuteCommand(input ExecuteCommandInput) (err error) {
-	ctx := context.TODO()
+    ctx := context.TODO()
 
-	execCmdresp, err := e.client.ExecuteCommand(ctx, &ecs.ExecuteCommandInput{
-		Cluster:     aws.String(input.Cluster),
-		Command:     aws.String(input.Command),
-		Container:   aws.String(input.Container),
-		Interactive: true,
-		Task:        aws.String(input.Task),
-	})
-	if err != nil {
-		return &ErrExecuteCommand{err: err}
-	}
+    execCmdresp, err := e.client.ExecuteCommand(ctx, &ecs.ExecuteCommandInput{
+        Cluster:     aws.String(input.Cluster),
+        Command:     aws.String(input.Command),
+        Container:   aws.String(input.Container),
+        Interactive: true,
+        Task:        aws.String(input.Task),
+    })
+    if err != nil {
+        return &ErrExecuteCommand{err: err}
+    }
 
-	// セッション情報を取得
-	sessID := aws.ToString(execCmdresp.Session.SessionId)
-	if err = e.newSessStarter().StartSession(execCmdresp.Session); err != nil {
-		err = fmt.Errorf("start session %s using ssm plugin: %w", sessID, err)
-	}
-	return nil
+    // セッション情報を取得
+    sessID := aws.ToString(execCmdresp.Session.SessionId)
+    ssmSessionOutput := &ssm.StartSessionOutput{
+        SessionId: execCmdresp.Session.SessionId,
+        Target:    execCmdresp.Session.Target,
+    }
+    if err = e.newSessStarter().StartSession(ssmSessionOutput); err != nil {
+        err = fmt.Errorf("start session %s using ssm plugin: %w", sessID, err)
+    }
+    return nil
 }
 
 func NewEcs(cfg aws.Config) *ECSResource {
-	return &ECSResource{
-		client: ecs.NewFromConfig(cfg),
-		newSessStarter: func() ssmSessionStarter {
-			return exec.NewSSMPluginCommand(s)
-		},
-		maxServiceStableTries: waitServiceStableMaxTry,
-		pollIntervalDuration:  waitServiceStablePollingInterval,
-	}
+    return &ECSResource{
+        client: ecs.NewFromConfig(cfg),
+        newSessStarter: func() ssmSessionStarter {
+            return exec.NewSSMPluginCommand()
+        },
+        maxServiceStableTries: waitServiceStableMaxTry,
+        pollIntervalDuration:  waitServiceStablePollingInterval,
+    }
 }
 
 func (e *ECSResource) ListClusters(ctx context.Context) error {
