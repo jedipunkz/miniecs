@@ -9,6 +9,7 @@ import (
     "github.com/aws/aws-sdk-go-v2/aws"
     "github.com/aws/aws-sdk-go-v2/config"
     "github.com/aws/aws-sdk-go-v2/service/ecs"
+    "github.com/aws/aws-sdk-go-v2/service/ssm"
 )
 
 const (
@@ -23,6 +24,7 @@ type Runner interface {
 // SSMPluginCommand represents commands that can be run to trigger the ssm plugin.
 type SSMPluginCommand struct {
     client *ecs.Client
+    cfg    aws.Config
     runner Runner
     http   httpClient
 }
@@ -38,18 +40,19 @@ func NewSSMPluginCommand() (SSMPluginCommand, error) {
     return SSMPluginCommand{
         runner: NewCmd(),
         client: client,
+        cfg:    cfg,
         http:   http.DefaultClient,
     }, nil
 }
 
 // StartSession starts a session using the ssm plugin.
-func (s SSMPluginCommand) StartSession() error {
+func (s SSMPluginCommand) StartSession(output *ssm.StartSessionOutput) error {
     response, err := json.Marshal(s.client)
     if err != nil {
         return fmt.Errorf("marshal session response: %w", err)
     }
     if err := s.runner.InteractiveRun(ssmPluginBinaryName,
-        []string{string(response), aws.ToString(s.client.Config.Region), startSessionAction}); err != nil {
+        []string{string(response), aws.ToString(output.SessionId), startSessionAction}); err != nil {
         return fmt.Errorf("start session: %w", err)
     }
     return nil
