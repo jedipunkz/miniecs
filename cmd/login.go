@@ -32,11 +32,7 @@ var loginCmd = &cobra.Command{
 func runLoginCmd(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
 
-	var ecsResource []myecs.ECSResource
 	var ecsResources []myecs.ECSResource
-
-	//TODO: use profile
-	// profile := os.Getenv("AWS_PROFILE")
 
 	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(loginSetFlags.region))
 	if err != nil {
@@ -44,6 +40,9 @@ func runLoginCmd(cmd *cobra.Command, args []string) {
 	}
 
 	e := myecs.NewEcs(cfg)
+	if e == nil {
+		log.Fatal("failed to initialize ECS client")
+	}
 
 	err = e.ListClusters(ctx)
 	if err != nil {
@@ -62,18 +61,37 @@ func runLoginCmd(cmd *cobra.Command, args []string) {
 				log.Fatal(err)
 			}
 
-			for _, task := range e.Tasks {
+			if len(e.Tasks) > 0 {
+				task := e.Tasks[0] // 最初のタスクのみを選択
+
+				// コンテナ情報をリセット
+				e.Containers = nil
+
 				err := e.ListContainers(ctx, task.TaskDefinition)
 				if err != nil {
 					log.Fatal(err)
 				}
 
-				for _, _ = range e.Containers {
-					ecsResources = append(ecsResources, myecs.ECSResource{Clusters: e.Clusters, Services: e.Services, Tasks: e.Tasks, Containers: e.Containers})
+				ecsResource := myecs.ECSResource{
+					Clusters:   []myecs.Cluster{cluster},
+					Services:   []myecs.Service{service},
+					Tasks:      []myecs.Task{task},
+					Containers: e.Containers,
 				}
+				ecsResources = append(ecsResources, ecsResource)
 			}
 		}
 	}
+
+	fmt.Println("ECS Resources:")
+	for _, resource := range ecsResources {
+		fmt.Printf("Clusters: %v\n", resource.Clusters)
+		fmt.Printf("Services: %v\n", resource.Services)
+		fmt.Printf("Tasks: %v\n", resource.Tasks)
+		fmt.Printf("Containers: %v\n", resource.Containers)
+	}
+	fmt.Println("ECSResources:")
+	fmt.Println(ecsResources)
 
 	idx, err := fuzzyfinder.FindMulti(
 		ecsResources,
@@ -91,13 +109,16 @@ func runLoginCmd(cmd *cobra.Command, args []string) {
 				ecsResources[i].Clusters[0].ClusterName,
 				ecsResources[i].Services[0].ServiceName,
 				ecsResources[i].Containers[0].ContainerName,
-				ecsResources[i].Containers[0].Shell)
-		}))
+			)
+		}),
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if err = login(idx, ecsResource); err != nil {
+	fmt.Println("Selected indices:", idx)
+
+	if err := login(idx, ecsResources); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -105,6 +126,7 @@ func runLoginCmd(cmd *cobra.Command, args []string) {
 func login(idx []int, e []myecs.ECSResource) error {
 	in := myecs.ExecuteCommandInput{}
 	in.Cluster = e[idx[0]].Clusters[0].ClusterName
+	in.Service = e[idx[0]].Services[0].ServiceName
 	in.Container = e[idx[0]].Containers[0].ContainerName
 	in.Task = e[idx[0]].Tasks[0].TaskArn
 
@@ -116,14 +138,14 @@ func login(idx []int, e []myecs.ECSResource) error {
 
 	log.WithFields(log.Fields{
 		"cluster":   in.Cluster,
-		"service":   e[idx[0]].Services[0].ServiceName,
+		"service":   in.Service,
 		"task":      in.Task,
 		"container": in.Container,
 		"command":   in.Command,
 	}).Info("ECS Execute Login with These Parameters")
 
 	if err := e[idx[0]].ExecuteCommand(in); err != nil {
-		log.Fatal(err)
+		log.Fatalf("failed to execute command: %v", err)
 		return err
 	}
 

@@ -2,7 +2,6 @@ package ecs
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -69,12 +68,13 @@ type ssmSessionStarter interface {
 
 type ExecuteCommandInput struct {
 	Cluster   string
+	Service   string
 	Command   string
 	Task      string
 	Container string
 }
 
-func (e *ECSResource) ExecuteCommand(input ExecuteCommandInput) (err error) {
+func (e *ECSResource) ExecuteCommand(input ExecuteCommandInput) error {
 	ctx := context.TODO()
 
 	execCmdresp, err := e.client.ExecuteCommand(ctx, &ecs.ExecuteCommandInput{
@@ -85,15 +85,15 @@ func (e *ECSResource) ExecuteCommand(input ExecuteCommandInput) (err error) {
 		Task:        aws.String(input.Task),
 	})
 	if err != nil {
-		return &ErrExecuteCommand{err: err}
+		return err
 	}
 
-	sessID := aws.ToString(execCmdresp.Session.SessionId)
+	// sessID := aws.ToString(execCmdresp.Session.SessionId)
 	ssmSessionOutput := &ssm.StartSessionOutput{
 		SessionId: execCmdresp.Session.SessionId,
 	}
 	if err = e.newSessStarter().StartSession(ssmSessionOutput); err != nil {
-		err = fmt.Errorf("start session %s using ssm plugin: %w", sessID, err)
+		return err
 	}
 	return nil
 }
@@ -105,6 +105,10 @@ func NewEcs(cfg aws.Config) *ECSResource {
 			cmd, _ := exec.NewSSMPluginCommand()
 			return cmd
 		},
+		Clusters:              []Cluster{},
+		Services:              []Service{},
+		Tasks:                 []Task{},
+		Containers:            []Container{},
 		maxServiceStableTries: waitServiceStableMaxTry,
 		pollIntervalDuration:  waitServiceStablePollingInterval,
 	}
