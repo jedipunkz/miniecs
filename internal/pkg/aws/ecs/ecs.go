@@ -2,19 +2,25 @@ package ecs
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
-	"github.com/jedipunkz/miniecs/internal/pkg/exec"
+
+	// "github.com/jedipunkz/miniecs/internal/pkg/exec"
 	log "github.com/sirupsen/logrus"
 )
 
 const (
 	waitServiceStablePollingInterval = 15 * time.Second
 	waitServiceStableMaxTry          = 80
+	ssmEndpoint                      = "https://ssm.ap-northeast-1.amazonaws.com"
 )
 
 // type api interface {
@@ -66,45 +72,87 @@ type ssmSessionStarter interface {
 	StartSession(ssmSession *ssm.StartSessionOutput) error
 }
 
-type ExecuteCommandInput struct {
-	Cluster   string
-	Service   string
-	Command   string
-	Task      string
-	Container string
-}
+// type ExecuteCommandInput struct {
+// 	Cluster   string
+// 	Service   string
+// 	Command   string
+// 	Task      string
+// 	Container string
+// }
 
-func (e *ECSResource) ExecuteCommand(input ExecuteCommandInput) error {
+// func (e *ECSResource) ExecuteCommand(input ExecuteCommandInput) error {
+func (e *ECSResource) ExecuteCommand(input ecs.ExecuteCommandInput) error {
 	ctx := context.TODO()
 
-	execCmdresp, err := e.client.ExecuteCommand(ctx, &ecs.ExecuteCommandInput{
-		Cluster:     aws.String(input.Cluster),
-		Command:     aws.String(input.Command),
-		Container:   aws.String(input.Container),
+	input = ecs.ExecuteCommandInput{
+		Cluster:     aws.String(*input.Cluster),
+		Command:     aws.String(*input.Command),
+		Container:   aws.String(*input.Container),
 		Interactive: true,
-		Task:        aws.String(input.Task),
-	})
-	if err != nil {
-		return err
+		Task:        aws.String(*input.Task),
 	}
 
-	// sessID := aws.ToString(execCmdresp.Session.SessionId)
-	ssmSessionOutput := &ssm.StartSessionOutput{
-		SessionId: execCmdresp.Session.SessionId,
+	if e.client == nil {
+		log.Fatal("e.client is nil")
 	}
-	if err = e.newSessStarter().StartSession(ssmSessionOutput); err != nil {
-		return err
+	execCommandOutput, err := e.client.ExecuteCommand(ctx, &input)
+	if err != nil {
+		log.Fatal(err)
 	}
+
+	ssmSession := execCommandOutput.Session
+	sessionInfo, err := json.Marshal(ssmSession)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	target := fmt.Sprintf("ecs:%s_%s_%s", *input.Cluster, *input.Task, *input.Container)
+	fmt.Println("cluster: ", *input.Cluster)
+	fmt.Println("task: ", *input.Task)
+	fmt.Println("container: ", *input.Container)
+
+	ssmTarget := struct {
+		Target string `json:"Target"`
+	}{
+		Target: target,
+	}
+	targetJSON, err := json.Marshal(ssmTarget)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error marshaling target information: %v\n", err)
+	}
+
+	fmt.Println("===========")
+	// session-manager-pluginコマンドを実行
+	cmd := exec.Command(
+		"session-manager-plugin",
+		string(sessionInfo),
+		"ap-northeast-1",
+		"StartSession",
+		os.Getenv("AWS_PROFILE"),
+		string(targetJSON),
+		ssmEndpoint,
+	)
+
+	cmd.Env = os.Environ()
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+
+	err = cmd.Run()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error running session-manager-plugin: %v\n", err)
+	}
+
 	return nil
 }
 
 func NewEcs(cfg aws.Config) *ECSResource {
 	return &ECSResource{
 		client: ecs.NewFromConfig(cfg),
-		newSessStarter: func() ssmSessionStarter {
-			cmd, _ := exec.NewSSMPluginCommand()
-			return cmd
-		},
+		// newSessStarter: func() ssmSessionStarter {
+		// 	cmd, _ := exec.NewSSMPluginCommand()
+		// 	return cmd
+		// },
 		Clusters:              []Cluster{},
 		Services:              []Service{},
 		Tasks:                 []Task{},
