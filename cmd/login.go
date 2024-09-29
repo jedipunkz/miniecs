@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
@@ -37,6 +38,10 @@ func runLoginCmd(cmd *cobra.Command, args []string) {
 	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(loginSetFlags.region))
 	if err != nil {
 		log.Fatalf("unable to load SDK config, %v", err)
+	}
+
+	if os.Getenv("AWS_PROFILE") == "" {
+		log.Fatal("set AWS_PROFILE environment variable to use")
 	}
 
 	e := myecs.NewEcs(cfg, loginSetFlags.region)
