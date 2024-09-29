@@ -18,7 +18,6 @@ import (
 const (
 	waitServiceStablePollingInterval = 15 * time.Second
 	waitServiceStableMaxTry          = 80
-	ssmEndpoint                      = "https://ssm.ap-northeast-1.amazonaws.com"
 )
 
 type ECSResource struct {
@@ -28,6 +27,8 @@ type ECSResource struct {
 	Services   []Service
 	Tasks      []Task
 	Containers []Container
+
+	Region string
 }
 
 type Cluster struct {
@@ -87,12 +88,14 @@ func (e *ECSResource) ExecuteCommand(input ecs.ExecuteCommandInput) error {
 		fmt.Fprintf(os.Stderr, "error marshaling target information: %v\n", err)
 	}
 
+	ssmEndpoint := "https://ssm." + e.Region + ".amazonaws.com"
+
 	cmd := exec.Command(
 		"session-manager-plugin",
 		string(sessionInfo),
-		"ap-northeast-1",
+		e.Region,
 		"StartSession",
-		os.Getenv("AWS_PROFILE"),
+		"", // os.Getenv("AWS_PROFILE"),
 		string(targetJSON),
 		ssmEndpoint,
 	)
@@ -110,13 +113,14 @@ func (e *ECSResource) ExecuteCommand(input ecs.ExecuteCommandInput) error {
 	return nil
 }
 
-func NewEcs(cfg aws.Config) *ECSResource {
+func NewEcs(cfg aws.Config, region string) *ECSResource {
 	return &ECSResource{
 		client:     ecs.NewFromConfig(cfg),
 		Clusters:   []Cluster{},
 		Services:   []Service{},
 		Tasks:      []Task{},
 		Containers: []Container{},
+		Region:     region,
 	}
 }
 

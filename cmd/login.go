@@ -39,7 +39,7 @@ func runLoginCmd(cmd *cobra.Command, args []string) {
 		log.Fatalf("unable to load SDK config, %v", err)
 	}
 
-	e := myecs.NewEcs(cfg)
+	e := myecs.NewEcs(cfg, loginSetFlags.region)
 	if e == nil {
 		log.Fatal("failed to initialize ECS client")
 	}
@@ -104,8 +104,6 @@ func runLoginCmd(cmd *cobra.Command, args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	fmt.Println("Selected indices:", idx)
 
 	if err := login(e, idx, ecsResources); err != nil {
 		log.Fatal(err)
