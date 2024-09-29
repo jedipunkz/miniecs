@@ -1,20 +1,16 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	myecs "github.com/jedipunkz/miniecs/internal/pkg/aws/ecs"
 	"github.com/ktr0731/go-fuzzyfinder"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-)
-
-const (
-	confFile     = "miniecs"
-	defaultShell = "sh"
 )
 
 var loginSetFlags struct {
@@ -23,7 +19,6 @@ var loginSetFlags struct {
 	shell   string
 }
 
-// loginCmd represents the login command
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "login cluster, service",
@@ -31,120 +26,112 @@ var loginCmd = &cobra.Command{
 }
 
 func runLoginCmd(cmd *cobra.Command, args []string) {
-	var ecsInfo ECSInfo
-	var ecsInfos ECSInfos
+	ctx := context.Background()
 
-	profile := os.Getenv("AWS_PROFILE")
+	var ecsResources []myecs.ECSResource
 
-	e := myecs.NewEcs(session.NewSessionWithOptions(session.Options{
-		Config: aws.Config{
-			CredentialsChainVerboseErrors: aws.Bool(true),
-			Region:                        aws.String(loginSetFlags.region),
-		},
-		SharedConfigState: session.SharedConfigEnable,
-		Profile:           profile,
-	}))
+	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(loginSetFlags.region))
+	if err != nil {
+		log.Fatalf("unable to load SDK config, %v", err)
+	}
 
-	ecsInfos = ecsInfo.fetchListECSs(e)
+	if os.Getenv("AWS_PROFILE") == "" {
+		log.Fatal("set AWS_PROFILE environment variable to use")
+	}
+
+	e := myecs.NewEcs(cfg, loginSetFlags.region)
+	if e == nil {
+		log.Fatal("failed to initialize ECS client")
+	}
+
+	err = e.ListClusters(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, cluster := range e.Clusters {
+		err = e.ListServices(ctx, cluster.ClusterName)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		for _, service := range e.Services {
+			err := e.GetTasks(ctx, cluster.ClusterName, service.ServiceName)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			if len(e.Tasks) > 0 {
+				task := e.Tasks[0] // set first task
+
+				e.Containers = nil
+
+				err := e.ListContainers(ctx, task.TaskDefinition)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				ecsResource := myecs.ECSResource{
+					Clusters:   []myecs.Cluster{cluster},
+					Services:   []myecs.Service{service},
+					Tasks:      []myecs.Task{task},
+					Containers: e.Containers,
+				}
+				ecsResources = append(ecsResources, ecsResource)
+			}
+		}
+	}
 
 	idx, err := fuzzyfinder.FindMulti(
-		ecsInfos,
+		ecsResources,
 		func(i int) string {
-			return ecsInfos[i].Cluster + " " +
-				ecsInfos[i].Service + " " +
-				ecsInfos[i].Container
+			return ecsResources[i].Clusters[0].ClusterName + " " +
+				ecsResources[i].Services[0].ServiceName + " " +
+				ecsResources[i].Containers[0].ContainerName
 		},
 		fuzzyfinder.WithPreviewWindow(func(i, w, h int) string {
 			if i == -1 {
 				return ""
 			}
 			return fmt.Sprintf(
-				"Cluster: %s\nService: %s\nContainer: %s\nCommand: %s",
-				ecsInfos[i].Cluster,
-				ecsInfos[i].Service,
-				ecsInfos[i].Container,
-				ecsInfo.Shell)
-		}))
+				"Cluster: %s\nService: %s\nContainer: %s\n",
+				ecsResources[i].Clusters[0].ClusterName,
+				ecsResources[i].Services[0].ServiceName,
+				ecsResources[i].Containers[0].ContainerName,
+			)
+		}),
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	ecsInfo.Cluster = ecsInfos[idx[0]].Cluster
-	ecsInfo.Service = ecsInfos[idx[0]].Service
-	ecsInfo.Container = ecsInfos[idx[0]].Container
-
-	if err := e.GetTask(
-		ecsInfos[idx[0]].Cluster,
-		ecsInfos[idx[0]].TaskDefinition); err != nil {
-		log.Fatal(err)
-	}
-
-	ecsInfo.Task = *e.Task.TaskArns[0]
-
-	if err = ecsInfo.login(e); err != nil {
+	if err := login(e, idx, ecsResources); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func (l *ECSInfo) fetchListECSs(e *myecs.ECS) ECSInfos {
-	var ecsInfos ECSInfos
-
-	clusters := []string{loginSetFlags.cluster}
-	if loginSetFlags.cluster == "" {
-		if err := e.ListClusters(); err != nil {
-			log.Fatal(err)
-		}
-		clusters = e.Clusters
-	}
-
-	for _, cluster := range clusters {
-		if err := e.ListServices(cluster); err != nil {
-			log.Fatal(err)
-		}
-		l.Cluster = cluster
-		for _, service := range e.Services {
-			if err := e.GetTaskDefinition(l.Cluster, service); err != nil {
-				log.Fatal(err)
-			}
-
-			if err := e.GetContainerName(e.TaskDefinition); err != nil {
-				log.Fatal(err)
-			}
-
-			for i := range e.Containers {
-				l.Service = service
-				l.TaskDefinition = e.TaskDefinition
-				l.Container = e.Containers[i]
-				ecsInfos = append(ecsInfos, *l)
-			}
-			e.Containers = nil
-		}
-	}
-	return ecsInfos
-}
-
-func (l *ECSInfo) login(e *myecs.ECS) error {
-	in := myecs.ExecuteCommandInput{}
-	in.Cluster = l.Cluster
-	in.Container = l.Container
-	in.Task = l.Task
+func login(e *myecs.ECSResource, idx []int, myecs []myecs.ECSResource) error {
+	in := ecs.ExecuteCommandInput{}
+	in.Cluster = &myecs[idx[0]].Clusters[0].ClusterName
+	in.Container = &myecs[idx[0]].Containers[0].ContainerName
+	in.Task = &myecs[idx[0]].Tasks[0].TaskArn
 
 	if loginSetFlags.shell != "" {
-		in.Command = loginSetFlags.shell
+		in.Command = &loginSetFlags.shell
 	} else {
-		in.Command = defaultShell
+		defaultShell := "sh"
+		in.Command = &defaultShell
 	}
 
 	log.WithFields(log.Fields{
-		"cluster":   l.Cluster,
-		"service":   l.Service,
-		"task":      l.Task,
-		"container": l.Container,
-		"command":   l.Shell,
+		"cluster":   *in.Cluster,
+		"task":      *in.Task,
+		"container": *in.Container,
+		"command":   *in.Command,
 	}).Info("ECS Execute Login with These Parameters")
 
 	if err := e.ExecuteCommand(in); err != nil {
-		log.Fatal(err)
+		log.Fatalf("failed to execute command: %v", err)
 		return err
 	}
 
