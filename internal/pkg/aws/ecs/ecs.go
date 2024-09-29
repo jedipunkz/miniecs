@@ -11,9 +11,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
-	"github.com/aws/aws-sdk-go-v2/service/ssm"
 
-	// "github.com/jedipunkz/miniecs/internal/pkg/exec"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -23,25 +21,13 @@ const (
 	ssmEndpoint                      = "https://ssm.ap-northeast-1.amazonaws.com"
 )
 
-// type api interface {
-// 	ExecuteCommand(input *ecs.ExecuteCommandInput) (*ecs.ExecuteCommandOutput, error)
-// 	ListTasks(input *ecs.ListTasksInput) (*ecs.ListTasksOutput, error)
-// 	ListClusters(input *ecs.ListClustersInput) (*ecs.ListClustersOutput, error)
-// 	ListServices(input *ecs.ListServicesInput) (*ecs.ListServicesOutput, error)
-// 	DescribeServices(input *ecs.DescribeServicesInput) (*ecs.DescribeServicesOutput, error)
-// 	DescribeTaskDefinition(input *ecs.DescribeTaskDefinitionInput) (*ecs.DescribeTaskDefinitionOutput, error)
-// }
-
 type ECSResource struct {
-	client         *ecs.Client
-	newSessStarter func() ssmSessionStarter
+	client *ecs.Client
 
-	Clusters              []Cluster
-	Services              []Service
-	Tasks                 []Task
-	Containers            []Container
-	maxServiceStableTries int
-	pollIntervalDuration  time.Duration
+	Clusters   []Cluster
+	Services   []Service
+	Tasks      []Task
+	Containers []Container
 }
 
 type Cluster struct {
@@ -64,23 +50,6 @@ type Container struct {
 	Shell         string
 }
 
-type ECSResources struct {
-	Resources []ECSResource
-}
-
-type ssmSessionStarter interface {
-	StartSession(ssmSession *ssm.StartSessionOutput) error
-}
-
-// type ExecuteCommandInput struct {
-// 	Cluster   string
-// 	Service   string
-// 	Command   string
-// 	Task      string
-// 	Container string
-// }
-
-// func (e *ECSResource) ExecuteCommand(input ExecuteCommandInput) error {
 func (e *ECSResource) ExecuteCommand(input ecs.ExecuteCommandInput) error {
 	ctx := context.TODO()
 
@@ -107,9 +76,6 @@ func (e *ECSResource) ExecuteCommand(input ecs.ExecuteCommandInput) error {
 	}
 
 	target := fmt.Sprintf("ecs:%s_%s_%s", *input.Cluster, *input.Task, *input.Container)
-	fmt.Println("cluster: ", *input.Cluster)
-	fmt.Println("task: ", *input.Task)
-	fmt.Println("container: ", *input.Container)
 
 	ssmTarget := struct {
 		Target string `json:"Target"`
@@ -121,8 +87,6 @@ func (e *ECSResource) ExecuteCommand(input ecs.ExecuteCommandInput) error {
 		fmt.Fprintf(os.Stderr, "error marshaling target information: %v\n", err)
 	}
 
-	fmt.Println("===========")
-	// session-manager-pluginコマンドを実行
 	cmd := exec.Command(
 		"session-manager-plugin",
 		string(sessionInfo),
@@ -148,17 +112,11 @@ func (e *ECSResource) ExecuteCommand(input ecs.ExecuteCommandInput) error {
 
 func NewEcs(cfg aws.Config) *ECSResource {
 	return &ECSResource{
-		client: ecs.NewFromConfig(cfg),
-		// newSessStarter: func() ssmSessionStarter {
-		// 	cmd, _ := exec.NewSSMPluginCommand()
-		// 	return cmd
-		// },
-		Clusters:              []Cluster{},
-		Services:              []Service{},
-		Tasks:                 []Task{},
-		Containers:            []Container{},
-		maxServiceStableTries: waitServiceStableMaxTry,
-		pollIntervalDuration:  waitServiceStablePollingInterval,
+		client:     ecs.NewFromConfig(cfg),
+		Clusters:   []Cluster{},
+		Services:   []Service{},
+		Tasks:      []Task{},
+		Containers: []Container{},
 	}
 }
 
