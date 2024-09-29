@@ -13,11 +13,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const (
-	confFile = "miniecs"
-	// defaultShell = "sh"
-)
-
 var loginSetFlags struct {
 	region  string
 	cluster string
