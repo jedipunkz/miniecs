@@ -7,17 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 
 	log "github.com/sirupsen/logrus"
-)
-
-const (
-	waitServiceStablePollingInterval = 15 * time.Second
-	waitServiceStableMaxTry          = 80
 )
 
 type ECSResource struct {
