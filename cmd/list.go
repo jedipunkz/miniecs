@@ -105,12 +105,12 @@ func listECSTable(ctx context.Context, e *myecs.ECSResource) ([][]string, error)
 }
 
 func init() {
-	rootCmd.AddCommand(loginCmd)
-	loginCmd.Flags().StringVarP(
-		&loginSetFlags.region, "region", "", "", "Region Name")
-	if err := loginCmd.MarkFlagRequired("region"); err != nil {
+	rootCmd.AddCommand(listCmd)
+	listCmd.Flags().StringVarP(
+		&listSetFlags.region, "region", "", "", "Region Name")
+	if err := listCmd.MarkFlagRequired("region"); err != nil {
 		log.Fatal(err)
 	}
-	loginCmd.Flags().StringVarP(
-		&loginSetFlags.cluster, "cluster", "", "", "ECS Cluster Name")
+	listCmd.Flags().StringVarP(
+		&listSetFlags.cluster, "cluster", "", "", "ECS Cluster Name")
 }
