@@ -71,13 +71,15 @@ func runLoginCmd(cmd *cobra.Command, args []string) {
 					log.Fatal(err)
 				}
 
-				ecsResource := myecs.ECSResource{
-					Clusters:   []myecs.Cluster{cluster},
-					Services:   []myecs.Service{service},
-					Tasks:      []myecs.Task{task},
-					Containers: e.Containers,
+				for _, container := range e.Containers {
+					ecsResource := myecs.ECSResource{
+						Clusters:   []myecs.Cluster{cluster},
+						Services:   []myecs.Service{service},
+						Tasks:      []myecs.Task{task},
+						Containers: []myecs.Container{container},
+					}
+					ecsResources = append(ecsResources, ecsResource)
 				}
-				ecsResources = append(ecsResources, ecsResource)
 			}
 		}
 	}
