@@ -45,68 +45,6 @@ type Container struct {
 	Shell         string
 }
 
-func (e *ECSResource) ExecuteCommand(input ecs.ExecuteCommandInput) error {
-	ctx := context.TODO()
-
-	input = ecs.ExecuteCommandInput{
-		Cluster:     aws.String(*input.Cluster),
-		Command:     aws.String(*input.Command),
-		Container:   aws.String(*input.Container),
-		Interactive: true,
-		Task:        aws.String(*input.Task),
-	}
-
-	if e.client == nil {
-		log.Fatal("e.client is nil")
-	}
-	execCommandOutput, err := e.client.ExecuteCommand(ctx, &input)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	ssmSession := execCommandOutput.Session
-	sessionInfo, err := json.Marshal(ssmSession)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	target := fmt.Sprintf("ecs:%s_%s_%s", *input.Cluster, *input.Task, *input.Container)
-
-	ssmTarget := struct {
-		Target string `json:"Target"`
-	}{
-		Target: target,
-	}
-	targetJSON, err := json.Marshal(ssmTarget)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error marshaling target information: %v\n", err)
-	}
-
-	ssmEndpoint := "https://ssm." + e.Region + ".amazonaws.com"
-
-	cmd := exec.Command(
-		"session-manager-plugin",
-		string(sessionInfo),
-		e.Region,
-		"StartSession",
-		"", // os.Getenv("AWS_PROFILE"),
-		string(targetJSON),
-		ssmEndpoint,
-	)
-
-	cmd.Env = os.Environ()
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-
-	err = cmd.Run()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error running session-manager-plugin: %v\n", err)
-	}
-
-	return nil
-}
-
 func NewEcs(cfg aws.Config, region string) *ECSResource {
 	return &ECSResource{
 		client:     ecs.NewFromConfig(cfg),
@@ -118,104 +56,186 @@ func NewEcs(cfg aws.Config, region string) *ECSResource {
 	}
 }
 
+func (e *ECSResource) ExecuteCommand(input ecs.ExecuteCommandInput) error {
+	if e.client == nil {
+		return fmt.Errorf("ECS client is not initialized")
+	}
+
+	ctx := context.Background()
+	input.Interactive = true
+
+	execCommandOutput, err := e.client.ExecuteCommand(ctx, &input)
+	if err != nil {
+		return fmt.Errorf("failed to execute command: %w", err)
+	}
+
+	sessionInfo, err := json.Marshal(execCommandOutput.Session)
+	if err != nil {
+		return fmt.Errorf("failed to marshal session info: %w", err)
+	}
+
+	target := fmt.Sprintf("ecs:%s_%s_%s", *input.Cluster, *input.Task, *input.Container)
+	ssmTarget := struct {
+		Target string `json:"Target"`
+	}{
+		Target: target,
+	}
+
+	targetJSON, err := json.Marshal(ssmTarget)
+	if err != nil {
+		return fmt.Errorf("failed to marshal target info: %w", err)
+	}
+
+	ssmEndpoint := fmt.Sprintf("https://ssm.%s.amazonaws.com", e.Region)
+	cmd := e.createSessionManagerCommand(sessionInfo, targetJSON, ssmEndpoint)
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to run session-manager-plugin: %w", err)
+	}
+
+	return nil
+}
+
+func (e *ECSResource) createSessionManagerCommand(sessionInfo, targetJSON []byte, ssmEndpoint string) *exec.Cmd {
+	cmd := exec.Command(
+		"session-manager-plugin",
+		string(sessionInfo),
+		e.Region,
+		"StartSession",
+		"",
+		string(targetJSON),
+		ssmEndpoint,
+	)
+
+	cmd.Env = os.Environ()
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+
+	return cmd
+}
+
+func extractResourceName(arn string) string {
+	segments := strings.Split(arn, "/")
+	return segments[len(segments)-1]
+}
+
 func (e *ECSResource) ListClusters(ctx context.Context) error {
 	resultClusters, err := e.client.ListClusters(ctx, &ecs.ListClustersInput{})
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to list clusters: %w", err)
 	}
 
-	var c []string
-	for _, cluster := range resultClusters.ClusterArns {
-		clusterArr := strings.Split(cluster, "/")
-		c = append(c, clusterArr[len(clusterArr)-1])
+	e.Clusters = make([]Cluster, 0, len(resultClusters.ClusterArns))
+	for _, clusterArn := range resultClusters.ClusterArns {
+		e.Clusters = append(e.Clusters, Cluster{
+			ClusterName: extractResourceName(clusterArn),
+		})
 	}
 
-	var clusters []Cluster
-	for _, cluster := range c {
-		clusters = append(clusters, Cluster{ClusterName: cluster})
-	}
-	e.Clusters = clusters
 	return nil
 }
 
 func (e *ECSResource) ListServices(ctx context.Context, cluster string) error {
-	inputService := &ecs.ListServicesInput{Cluster: aws.String(cluster)}
-	resultServices, err := e.client.ListServices(ctx, inputService)
+	input := &ecs.ListServicesInput{Cluster: aws.String(cluster)}
+	resultServices, err := e.client.ListServices(ctx, input)
 	if err != nil {
-		log.Fatal(err)
-		return err
+		return fmt.Errorf("failed to list services for cluster %s: %w", cluster, err)
 	}
 
-	var services []Service
-	for _, service := range resultServices.ServiceArns {
-		serviceArr := strings.Split(service, "/")
-		services = append(services, Service{ServiceName: serviceArr[len(serviceArr)-1]})
+	e.Services = make([]Service, 0, len(resultServices.ServiceArns))
+	for _, serviceArn := range resultServices.ServiceArns {
+		e.Services = append(e.Services, Service{
+			ServiceName: extractResourceName(serviceArn),
+		})
 	}
-	e.Services = services
+
 	return nil
 }
 
 func (e *ECSResource) GetTasks(ctx context.Context, cluster, service string) error {
-	inputTask := &ecs.ListTasksInput{
-		Cluster:     aws.String(cluster),
-		ServiceName: aws.String(service),
-	}
-	resultTasks, err := e.client.ListTasks(ctx, inputTask)
+	tasks, err := e.listTasks(ctx, cluster, service)
 	if err != nil {
-		log.Fatal(err)
 		return err
 	}
 
-	var tasks []Task
-	for _, taskArn := range resultTasks.TaskArns {
-		describeTasksInput := &ecs.DescribeTasksInput{
-			Tasks:   []string{taskArn},
-			Cluster: aws.String(cluster),
-		}
-		describeTasksOutput, err := e.client.DescribeTasks(ctx, describeTasksInput)
+	e.Tasks = make([]Task, 0, len(tasks))
+	for _, taskArn := range tasks {
+		task, err := e.describeTask(ctx, cluster, taskArn)
 		if err != nil {
-			log.Fatal(err)
-			return err
-		}
-
-		if len(describeTasksOutput.Tasks) == 0 {
-			log.Printf("Could not found task definition with task arn: %s", taskArn)
+			log.Warnf("Failed to describe task %s: %v", taskArn, err)
 			continue
 		}
-
-		taskDefinitionArn := describeTasksOutput.Tasks[0].TaskDefinitionArn
-
-		describeTaskDefinitionInput := &ecs.DescribeTaskDefinitionInput{
-			TaskDefinition: taskDefinitionArn,
-		}
-		describeTaskDefinitionOutput, err := e.client.DescribeTaskDefinition(ctx, describeTaskDefinitionInput)
-		if err != nil {
-			log.Fatal(err)
-			return err
-		}
-
-		tasks = append(tasks, Task{
-			TaskArn:        taskArn,
-			TaskDefinition: *describeTaskDefinitionOutput.TaskDefinition.Family,
-		})
+		e.Tasks = append(e.Tasks, task)
 	}
-	e.Tasks = tasks
+
 	return nil
 }
 
+func (e *ECSResource) listTasks(ctx context.Context, cluster, service string) ([]string, error) {
+	input := &ecs.ListTasksInput{
+		Cluster:     aws.String(cluster),
+		ServiceName: aws.String(service),
+	}
+	result, err := e.client.ListTasks(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tasks for service %s: %w", service, err)
+	}
+	return result.TaskArns, nil
+}
+
+func (e *ECSResource) describeTask(ctx context.Context, cluster, taskArn string) (Task, error) {
+	input := &ecs.DescribeTasksInput{
+		Tasks:   []string{taskArn},
+		Cluster: aws.String(cluster),
+	}
+	result, err := e.client.DescribeTasks(ctx, input)
+	if err != nil {
+		return Task{}, fmt.Errorf("failed to describe task %s: %w", taskArn, err)
+	}
+
+	if len(result.Tasks) == 0 {
+		return Task{}, fmt.Errorf("no task found with ARN %s", taskArn)
+	}
+
+	taskDef, err := e.describeTaskDefinition(ctx, result.Tasks[0].TaskDefinitionArn)
+	if err != nil {
+		return Task{}, err
+	}
+
+	return Task{
+		TaskArn:        taskArn,
+		TaskDefinition: *taskDef.TaskDefinition.Family,
+	}, nil
+}
+
+func (e *ECSResource) describeTaskDefinition(ctx context.Context, taskDefinitionArn *string) (*ecs.DescribeTaskDefinitionOutput, error) {
+	input := &ecs.DescribeTaskDefinitionInput{
+		TaskDefinition: taskDefinitionArn,
+	}
+	result, err := e.client.DescribeTaskDefinition(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("failed to describe task definition %s: %w", *taskDefinitionArn, err)
+	}
+	return result, nil
+}
+
 func (e *ECSResource) ListContainers(ctx context.Context, taskDefinition string) error {
-	inputTaskDefinition := &ecs.DescribeTaskDefinitionInput{
+	input := &ecs.DescribeTaskDefinitionInput{
 		TaskDefinition: aws.String(taskDefinition),
 	}
 
-	result, err := e.client.DescribeTaskDefinition(context.Background(), inputTaskDefinition)
+	result, err := e.client.DescribeTaskDefinition(ctx, input)
 	if err != nil {
-		log.Fatal(err)
-		return err
+		return fmt.Errorf("failed to describe task definition %s: %w", taskDefinition, err)
 	}
 
+	e.Containers = make([]Container, 0, len(result.TaskDefinition.ContainerDefinitions))
 	for _, container := range result.TaskDefinition.ContainerDefinitions {
-		e.Containers = append(e.Containers, Container{ContainerName: *container.Name})
+		e.Containers = append(e.Containers, Container{
+			ContainerName: *container.Name,
+		})
 	}
+
 	return nil
 }
