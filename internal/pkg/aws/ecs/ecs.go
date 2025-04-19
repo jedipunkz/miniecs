@@ -81,6 +81,19 @@ func NewEcs(cfg aws.Config, region string) *ECSResource {
 	}
 }
 
+// NewEcsWithClient はテスト用のECSResourceを作成します
+func NewEcsWithClient(client ECSClient, region string) *ECSResource {
+	return &ECSResource{
+		client:     client,
+		runner:     &DefaultCommandRunner{},
+		Clusters:   []Cluster{},
+		Services:   []Service{},
+		Tasks:      []Task{},
+		Containers: []Container{},
+		Region:     region,
+	}
+}
+
 func (e *ECSResource) ExecuteCommand(input ecs.ExecuteCommandInput) error {
 	if e.client == nil {
 		return fmt.Errorf("ECS client is not initialized")
@@ -255,14 +268,13 @@ func (e *ECSResource) describeTask(ctx context.Context, cluster, taskArn string)
 	}
 
 	taskDefinitionArn := describeTasksOutput.Tasks[0].TaskDefinitionArn
-	taskDefinition, err := e.describeTaskDefinition(ctx, taskDefinitionArn)
-	if err != nil {
-		return nil, err
+	if taskDefinitionArn == nil {
+		return nil, fmt.Errorf("task definition ARN is nil for task: %s", taskArn)
 	}
 
 	return &Task{
 		TaskArn:        taskArn,
-		TaskDefinition: *taskDefinition.TaskDefinition.Family,
+		TaskDefinition: *taskDefinitionArn,
 	}, nil
 }
 
