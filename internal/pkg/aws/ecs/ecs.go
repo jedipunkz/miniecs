@@ -15,19 +15,16 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// CommandRunner はコマンド実行のインターフェースを定義します
 type CommandRunner interface {
 	Run(cmd *exec.Cmd) error
 }
 
-// DefaultCommandRunner は実際のコマンド実行を行う構造体です
 type DefaultCommandRunner struct{}
 
 func (r *DefaultCommandRunner) Run(cmd *exec.Cmd) error {
 	return cmd.Run()
 }
 
-// ECSClient は ECS クライアントのインターフェースを定義します
 type ECSClient interface {
 	ListClusters(ctx context.Context, params *ecs.ListClustersInput, optFns ...func(*ecs.Options)) (*ecs.ListClustersOutput, error)
 	ListServices(ctx context.Context, params *ecs.ListServicesInput, optFns ...func(*ecs.Options)) (*ecs.ListServicesOutput, error)
@@ -81,7 +78,6 @@ func NewEcs(cfg aws.Config, region string) *ECSResource {
 	}
 }
 
-// NewEcsWithClient はテスト用のECSResourceを作成します
 func NewEcsWithClient(client ECSClient, region string) *ECSResource {
 	return &ECSResource{
 		client:     client,
@@ -272,9 +268,21 @@ func (e *ECSResource) describeTask(ctx context.Context, cluster, taskArn string)
 		return nil, fmt.Errorf("task definition ARN is nil for task: %s", taskArn)
 	}
 
+	// タスク定義の詳細を取得
+	taskDefinitionOutput, err := e.describeTaskDefinition(ctx, taskDefinitionArn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to describe task definition: %w", err)
+	}
+
+	// タスク定義のファミリー名を取得
+	taskDefinition := ""
+	if taskDefinitionOutput.TaskDefinition != nil && taskDefinitionOutput.TaskDefinition.Family != nil {
+		taskDefinition = *taskDefinitionOutput.TaskDefinition.Family
+	}
+
 	return &Task{
 		TaskArn:        taskArn,
-		TaskDefinition: *taskDefinitionArn,
+		TaskDefinition: taskDefinition,
 	}, nil
 }
 
@@ -307,4 +315,27 @@ func extractContainers(containerDefinitions []types.ContainerDefinition) []Conta
 		})
 	}
 	return containers
+}
+
+func (e *ECSResource) CollectECSResources(ctx context.Context) error {
+	err := e.ListClusters(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list clusters: %w", err)
+	}
+
+	for _, cluster := range e.Clusters {
+		err = e.ListServices(ctx, cluster.ClusterName)
+		if err != nil {
+			return fmt.Errorf("failed to list services for cluster %s: %w", cluster.ClusterName, err)
+		}
+
+		for _, service := range e.Services {
+			err = e.GetTasks(ctx, cluster.ClusterName, service.ServiceName)
+			if err != nil {
+				return fmt.Errorf("failed to get tasks for service %s: %w", service.ServiceName, err)
+			}
+		}
+	}
+
+	return nil
 }

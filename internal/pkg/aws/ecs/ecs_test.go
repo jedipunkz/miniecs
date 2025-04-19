@@ -217,4 +217,73 @@ func TestExecuteCommand(t *testing.T) {
 	assert.NoError(t, err)
 	mockClient.AssertExpectations(t)
 	mockRunner.AssertExpectations(t)
+}
+
+func TestCollectECSResources(t *testing.T) {
+	mockClient := new(MockECSClient)
+	ecsResource := &ECSResource{
+		client: mockClient,
+		Region: "ap-northeast-1",
+	}
+
+	// ListClustersのモック
+	clusterName := "test-cluster"
+	mockClient.On("ListClusters", mock.Anything, mock.Anything).Return(&ecs.ListClustersOutput{
+		ClusterArns: []string{"arn:aws:ecs:ap-northeast-1:123456789012:cluster/" + clusterName},
+	}, nil)
+
+	// ListServicesのモック
+	serviceName := "test-service"
+	mockClient.On("ListServices", mock.Anything, &ecs.ListServicesInput{
+		Cluster: aws.String(clusterName),
+	}).Return(&ecs.ListServicesOutput{
+		ServiceArns: []string{"arn:aws:ecs:ap-northeast-1:123456789012:service/" + clusterName + "/" + serviceName},
+	}, nil)
+
+	// ListTasksのモック
+	taskArn := "arn:aws:ecs:ap-northeast-1:123456789012:task/" + clusterName + "/task-id"
+	taskDefinitionArn := "arn:aws:ecs:ap-northeast-1:123456789012:task-definition/test-task:1"
+	mockClient.On("ListTasks", mock.Anything, &ecs.ListTasksInput{
+		Cluster:     aws.String(clusterName),
+		ServiceName: aws.String(serviceName),
+	}).Return(&ecs.ListTasksOutput{
+		TaskArns: []string{taskArn},
+	}, nil)
+
+	// DescribeTasksのモック
+	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
+		Tasks:   []string{taskArn},
+		Cluster: aws.String(clusterName),
+	}).Return(&ecs.DescribeTasksOutput{
+		Tasks: []types.Task{
+			{
+				TaskArn:           aws.String(taskArn),
+				TaskDefinitionArn: aws.String(taskDefinitionArn),
+			},
+		},
+	}, nil)
+
+	// DescribeTaskDefinitionのモック
+	mockClient.On("DescribeTaskDefinition", mock.Anything, &ecs.DescribeTaskDefinitionInput{
+		TaskDefinition: aws.String(taskDefinitionArn),
+	}).Return(&ecs.DescribeTaskDefinitionOutput{
+		TaskDefinition: &types.TaskDefinition{
+			Family: aws.String("test-task"),
+		},
+	}, nil)
+
+	// リソースの収集
+	err := ecsResource.CollectECSResources(context.Background())
+	assert.NoError(t, err)
+
+	// 結果の検証
+	assert.Len(t, ecsResource.Clusters, 1)
+	assert.Equal(t, clusterName, ecsResource.Clusters[0].ClusterName)
+
+	assert.Len(t, ecsResource.Services, 1)
+	assert.Equal(t, serviceName, ecsResource.Services[0].ServiceName)
+
+	assert.Len(t, ecsResource.Tasks, 1)
+	assert.Equal(t, taskArn, ecsResource.Tasks[0].TaskArn)
+	assert.Equal(t, "test-task", ecsResource.Tasks[0].TaskDefinition)
 } 
