@@ -337,3 +337,51 @@ func (e *ECSResource) CollectECSResources(ctx context.Context) error {
 
 	return nil
 }
+
+func (e *ECSResource) CollectServicesAndContainers(ctx context.Context, cluster Cluster) ([]ECSResource, error) {
+	var resources []ECSResource
+
+	if err := e.ListServices(ctx, cluster.ClusterName); err != nil {
+		return nil, fmt.Errorf("failed to list services: %w", err)
+	}
+
+	for _, service := range e.Services {
+		serviceResources, err := e.CollectTasksAndContainers(ctx, cluster, service)
+		if err != nil {
+			return nil, err
+		}
+		resources = append(resources, serviceResources...)
+	}
+
+	return resources, nil
+}
+
+func (e *ECSResource) CollectTasksAndContainers(ctx context.Context, cluster Cluster, service Service) ([]ECSResource, error) {
+	var resources []ECSResource
+
+	if err := e.GetTasks(ctx, cluster.ClusterName, service.ServiceName); err != nil {
+		return nil, fmt.Errorf("failed to get tasks: %w", err)
+	}
+
+	if len(e.Tasks) == 0 {
+		return resources, nil
+	}
+
+	task := e.Tasks[0]
+	e.Containers = nil
+
+	if err := e.ListContainers(ctx, task.TaskDefinition); err != nil {
+		return nil, fmt.Errorf("failed to list containers: %w", err)
+	}
+
+	for _, container := range e.Containers {
+		resources = append(resources, ECSResource{
+			Clusters:   []Cluster{cluster},
+			Services:   []Service{service},
+			Tasks:      []Task{task},
+			Containers: []Container{container},
+		})
+	}
+
+	return resources, nil
+}

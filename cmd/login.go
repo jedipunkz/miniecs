@@ -84,54 +84,14 @@ func collectECSResources(ctx context.Context, ecsClient *myecs.ECSResource) ([]m
 	}
 
 	for _, cluster := range ecsClient.Clusters {
-		if err := collectServicesAndContainers(ctx, ecsClient, cluster, &ecsResources); err != nil {
+		resources, err := ecsClient.CollectServicesAndContainers(ctx, cluster)
+		if err != nil {
 			return nil, err
 		}
+		ecsResources = append(ecsResources, resources...)
 	}
 
 	return ecsResources, nil
-}
-
-func collectServicesAndContainers(ctx context.Context, ecsClient *myecs.ECSResource, cluster myecs.Cluster, ecsResources *[]myecs.ECSResource) error {
-	if err := ecsClient.ListServices(ctx, cluster.ClusterName); err != nil {
-		return fmt.Errorf("failed to list services: %w", err)
-	}
-
-	for _, service := range ecsClient.Services {
-		if err := collectTasksAndContainers(ctx, ecsClient, cluster, service, ecsResources); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func collectTasksAndContainers(ctx context.Context, ecsClient *myecs.ECSResource, cluster myecs.Cluster, service myecs.Service, ecsResources *[]myecs.ECSResource) error {
-	if err := ecsClient.GetTasks(ctx, cluster.ClusterName, service.ServiceName); err != nil {
-		return fmt.Errorf("failed to get tasks: %w", err)
-	}
-
-	if len(ecsClient.Tasks) == 0 {
-		return nil
-	}
-
-	task := ecsClient.Tasks[0]
-	ecsClient.Containers = nil
-
-	if err := ecsClient.ListContainers(ctx, task.TaskDefinition); err != nil {
-		return fmt.Errorf("failed to list containers: %w", err)
-	}
-
-	for _, container := range ecsClient.Containers {
-		*ecsResources = append(*ecsResources, myecs.ECSResource{
-			Clusters:   []myecs.Cluster{cluster},
-			Services:   []myecs.Service{service},
-			Tasks:      []myecs.Task{task},
-			Containers: []myecs.Container{container},
-		})
-	}
-
-	return nil
 }
 
 func selectECSResource(ecsResources []myecs.ECSResource) ([]int, error) {
