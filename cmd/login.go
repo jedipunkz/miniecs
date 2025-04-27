@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
@@ -51,10 +50,6 @@ func runLoginCmd(cmd *cobra.Command, args []string) {
 }
 
 func initializeECSClient(ctx context.Context) (*myecs.ECSResource, error) {
-	if os.Getenv("AWS_PROFILE") == "" {
-		return nil, fmt.Errorf("set AWS_PROFILE environment variable to use")
-	}
-
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(loginSetFlags.region))
 	if err != nil {
 		return nil, fmt.Errorf("unable to load SDK config: %w", err)
