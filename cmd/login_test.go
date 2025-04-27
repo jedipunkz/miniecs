@@ -190,8 +190,3 @@ func TestCollectECSResources(t *testing.T) {
 	// すべてのモックが期待通り呼び出されたことを確認
 	mockClient.AssertExpectations(t)
 }
-
-// ヘルパー関数
-func stringPtr(s string) *string {
-	return &s
-}
