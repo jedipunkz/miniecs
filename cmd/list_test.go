@@ -15,11 +15,6 @@ import (
 
 type mockECSClient struct {
 	mock.Mock
-	listClustersOutput           *ecs.ListClustersOutput
-	listServicesOutput           *ecs.ListServicesOutput
-	listTasksOutput              *ecs.ListTasksOutput
-	describeTasksOutput          *ecs.DescribeTasksOutput
-	describeTaskDefinitionOutput *ecs.DescribeTaskDefinitionOutput
 }
 
 func (m *mockECSClient) ListClusters(ctx context.Context, params *ecs.ListClustersInput, optFns ...func(*ecs.Options)) (*ecs.ListClustersOutput, error) {

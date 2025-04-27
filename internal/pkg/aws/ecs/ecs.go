@@ -274,13 +274,6 @@ func (e *ECSResource) describeTask(ctx context.Context, cluster, taskArn string)
 	}, nil
 }
 
-func (e *ECSResource) describeTaskDefinition(ctx context.Context, taskDefinitionArn *string) (*ecs.DescribeTaskDefinitionOutput, error) {
-	input := &ecs.DescribeTaskDefinitionInput{
-		TaskDefinition: taskDefinitionArn,
-	}
-	return e.client.DescribeTaskDefinition(ctx, input)
-}
-
 func (e *ECSResource) ListContainers(ctx context.Context, taskDefinition string) error {
 	input := &ecs.DescribeTaskDefinitionInput{
 		TaskDefinition: aws.String(taskDefinition),
