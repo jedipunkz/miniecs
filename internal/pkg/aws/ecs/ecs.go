@@ -268,13 +268,11 @@ func (e *ECSResource) describeTask(ctx context.Context, cluster, taskArn string)
 		return nil, fmt.Errorf("task definition ARN is nil for task: %s", taskArn)
 	}
 
-	// タスク定義の詳細を取得
 	taskDefinitionOutput, err := e.describeTaskDefinition(ctx, taskDefinitionArn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to describe task definition: %w", err)
 	}
 
-	// タスク定義のファミリー名を取得
 	taskDefinition := ""
 	if taskDefinitionOutput.TaskDefinition != nil && taskDefinitionOutput.TaskDefinition.Family != nil {
 		taskDefinition = *taskDefinitionOutput.TaskDefinition.Family

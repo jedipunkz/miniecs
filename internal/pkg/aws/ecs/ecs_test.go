@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-// MockECSClient は ECS クライアントのモックを実装します
 type MockECSClient struct {
 	mock.Mock
 }
@@ -47,7 +46,6 @@ func (m *MockECSClient) ExecuteCommand(ctx context.Context, params *ecs.ExecuteC
 	return args.Get(0).(*ecs.ExecuteCommandOutput), args.Error(1)
 }
 
-// MockCommandRunner はコマンド実行のモックを実装します
 type MockCommandRunner struct {
 	mock.Mock
 }
@@ -137,7 +135,7 @@ func TestGetTasks(t *testing.T) {
 	}).Return(&ecs.DescribeTasksOutput{
 		Tasks: []types.Task{
 			{
-				TaskArn:        aws.String(taskArn),
+				TaskArn:           aws.String(taskArn),
 				TaskDefinitionArn: aws.String(taskDefinitionArn),
 			},
 		},
@@ -226,13 +224,11 @@ func TestCollectECSResources(t *testing.T) {
 		Region: "ap-northeast-1",
 	}
 
-	// ListClustersのモック
 	clusterName := "test-cluster"
 	mockClient.On("ListClusters", mock.Anything, mock.Anything).Return(&ecs.ListClustersOutput{
 		ClusterArns: []string{"arn:aws:ecs:ap-northeast-1:123456789012:cluster/" + clusterName},
 	}, nil)
 
-	// ListServicesのモック
 	serviceName := "test-service"
 	mockClient.On("ListServices", mock.Anything, &ecs.ListServicesInput{
 		Cluster: aws.String(clusterName),
@@ -240,7 +236,6 @@ func TestCollectECSResources(t *testing.T) {
 		ServiceArns: []string{"arn:aws:ecs:ap-northeast-1:123456789012:service/" + clusterName + "/" + serviceName},
 	}, nil)
 
-	// ListTasksのモック
 	taskArn := "arn:aws:ecs:ap-northeast-1:123456789012:task/" + clusterName + "/task-id"
 	taskDefinitionArn := "arn:aws:ecs:ap-northeast-1:123456789012:task-definition/test-task:1"
 	mockClient.On("ListTasks", mock.Anything, &ecs.ListTasksInput{
@@ -250,7 +245,6 @@ func TestCollectECSResources(t *testing.T) {
 		TaskArns: []string{taskArn},
 	}, nil)
 
-	// DescribeTasksのモック
 	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
 		Tasks:   []string{taskArn},
 		Cluster: aws.String(clusterName),
@@ -263,7 +257,6 @@ func TestCollectECSResources(t *testing.T) {
 		},
 	}, nil)
 
-	// DescribeTaskDefinitionのモック
 	mockClient.On("DescribeTaskDefinition", mock.Anything, &ecs.DescribeTaskDefinitionInput{
 		TaskDefinition: aws.String(taskDefinitionArn),
 	}).Return(&ecs.DescribeTaskDefinitionOutput{
@@ -272,11 +265,9 @@ func TestCollectECSResources(t *testing.T) {
 		},
 	}, nil)
 
-	// リソースの収集
 	err := ecsResource.CollectECSResources(context.Background())
 	assert.NoError(t, err)
 
-	// 結果の検証
 	assert.Len(t, ecsResource.Clusters, 1)
 	assert.Equal(t, clusterName, ecsResource.Clusters[0].ClusterName)
 
@@ -286,4 +277,4 @@ func TestCollectECSResources(t *testing.T) {
 	assert.Len(t, ecsResource.Tasks, 1)
 	assert.Equal(t, taskArn, ecsResource.Tasks[0].TaskArn)
 	assert.Equal(t, "test-task", ecsResource.Tasks[0].TaskDefinition)
-} 
+}
