@@ -45,6 +45,22 @@ You can optionally specify a cluster and shell. The default shell is 'sh'.
 $ miniecs login --region <REGION_NAME> --cluster <CLUSTER_NAME> --shell <SHELL>
 ```
 
+### List Command
+
+The `list` command displays a table of ECS resources including clusters, services, task definitions, and containers.
+
+To list all ECS resources in a region, run the `list` command. The `region` parameter is mandatory.
+
+```shell
+$ miniecs list --region <REGION_NAME>
+```
+
+The output will be displayed in a table format with the following columns:
+- Cluster
+- Service
+- Task Definition
+- Container
+
 ## License
 
 [Apache License 2.0](https://github.com/jedipunkz/awscreds/blob/main/LICENSE)
