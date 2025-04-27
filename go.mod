@@ -9,6 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.27.38
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.46.2
 	github.com/ktr0731/go-fuzzyfinder v0.9.0
+	github.com/olekukonko/tablewriter v0.0.5
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.10.0

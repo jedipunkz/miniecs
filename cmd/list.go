@@ -14,7 +14,6 @@ import (
 var listSetFlags struct {
 	region  string
 	cluster string
-	shell   string
 }
 
 var listCmd = &cobra.Command{
@@ -26,18 +25,12 @@ var listCmd = &cobra.Command{
 func runlistCmd(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
 
-	// var ecsResources []myecs.ECSResource
-
-	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(loginSetFlags.region))
+	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(listSetFlags.region))
 	if err != nil {
 		log.Fatalf("unable to load SDK config, %v", err)
 	}
 
-	if os.Getenv("AWS_PROFILE") == "" {
-		log.Fatal("set AWS_PROFILE environment variable to use")
-	}
-
-	e := myecs.NewEcs(cfg, loginSetFlags.region)
+	e := myecs.NewEcs(cfg, listSetFlags.region)
 	if e == nil {
 		log.Fatal("failed to initialize ECS client")
 	}
@@ -58,7 +51,6 @@ func runlistCmd(cmd *cobra.Command, args []string) {
 		"Service",
 		"Task Definition",
 		"Container"})
-	// table.SetFooter([]string{"Total", "", "", strconv.Itoa(len(ecsTable))}) // Add Footer
 	table.SetBorder(true)
 	table.AppendBulk(ecsTable)
 	table.Render()
@@ -69,38 +61,37 @@ func listECSTable(ctx context.Context, e *myecs.ECSResource) ([][]string, error)
 
 	if listSetFlags.cluster == "" {
 		for _, cluster := range e.Clusters {
-			if err := e.ListServices(ctx, cluster.ClusterName); err != nil {
+			resources, err := e.CollectServicesAndContainers(ctx, cluster)
+			if err != nil {
 				return nil, err
 			}
-			for _, service := range e.Services {
-				if err := e.GetTasks(ctx, cluster.ClusterName, service.ServiceName); err != nil {
-					return nil, err
-				}
 
-				if err := e.ListContainers(ctx, e.Tasks[0].TaskDefinition); err != nil {
-					return nil, err
-				}
-
-				for _, container := range e.Containers {
-					ecsTable = append(ecsTable, []string{cluster.ClusterName, service.ServiceName, e.Tasks[0].TaskDefinition, container.ContainerName})
-				}
+			for _, resource := range resources {
+				ecsTable = append(ecsTable, []string{
+					resource.Clusters[0].ClusterName,
+					resource.Services[0].ServiceName,
+					resource.Tasks[0].TaskDefinition,
+					resource.Containers[0].ContainerName,
+				})
 			}
 		}
 	} else {
-		for _, service := range e.Services {
-			if err := e.GetTasks(ctx, listSetFlags.cluster, service.ServiceName); err != nil {
-				return nil, err
-			}
+		cluster := myecs.Cluster{ClusterName: listSetFlags.cluster}
+		resources, err := e.CollectServicesAndContainers(ctx, cluster)
+		if err != nil {
+			return nil, err
+		}
 
-			if err := e.ListContainers(ctx, e.Tasks[0].TaskDefinition); err != nil {
-				return nil, err
-			}
-
-			for _, container := range e.Containers {
-				ecsTable = append(ecsTable, []string{listSetFlags.cluster, service.ServiceName, e.Tasks[0].TaskDefinition, container.ContainerName})
-			}
+		for _, resource := range resources {
+			ecsTable = append(ecsTable, []string{
+				resource.Clusters[0].ClusterName,
+				resource.Services[0].ServiceName,
+				resource.Tasks[0].TaskDefinition,
+				resource.Containers[0].ContainerName,
+			})
 		}
 	}
+
 	return ecsTable, nil
 }
 
