@@ -278,3 +278,134 @@ func TestCollectECSResources(t *testing.T) {
 	assert.Equal(t, taskArn, ecsResource.Tasks[0].TaskArn)
 	assert.Equal(t, "test-task", ecsResource.Tasks[0].TaskDefinition)
 }
+
+func TestCollectServicesAndContainers(t *testing.T) {
+	mockClient := new(MockECSClient)
+	ecsResource := &ECSResource{
+		client: mockClient,
+		Region: "ap-northeast-1",
+	}
+
+	cluster := Cluster{ClusterName: "test-cluster"}
+	serviceName := "test-service"
+	mockClient.On("ListServices", mock.Anything, &ecs.ListServicesInput{
+		Cluster: aws.String(cluster.ClusterName),
+	}).Return(&ecs.ListServicesOutput{
+		ServiceArns: []string{"arn:aws:ecs:ap-northeast-1:123456789012:service/" + cluster.ClusterName + "/" + serviceName},
+	}, nil)
+
+	taskArn := "arn:aws:ecs:ap-northeast-1:123456789012:task/" + cluster.ClusterName + "/task-id"
+	taskDefinitionArn := "arn:aws:ecs:ap-northeast-1:123456789012:task-definition/test-task:1"
+	mockClient.On("ListTasks", mock.Anything, &ecs.ListTasksInput{
+		Cluster:     aws.String(cluster.ClusterName),
+		ServiceName: aws.String(serviceName),
+	}).Return(&ecs.ListTasksOutput{
+		TaskArns: []string{taskArn},
+	}, nil)
+
+	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
+		Tasks:   []string{taskArn},
+		Cluster: aws.String(cluster.ClusterName),
+	}).Return(&ecs.DescribeTasksOutput{
+		Tasks: []types.Task{
+			{
+				TaskArn:           aws.String(taskArn),
+				TaskDefinitionArn: aws.String(taskDefinitionArn),
+			},
+		},
+	}, nil)
+
+	mockClient.On("DescribeTaskDefinition", mock.Anything, &ecs.DescribeTaskDefinitionInput{
+		TaskDefinition: aws.String(taskDefinitionArn),
+	}).Return(&ecs.DescribeTaskDefinitionOutput{
+		TaskDefinition: &types.TaskDefinition{
+			Family: aws.String("test-task"),
+		},
+	}, nil)
+
+	containerName := "test-container"
+	mockClient.On("DescribeTaskDefinition", mock.Anything, &ecs.DescribeTaskDefinitionInput{
+		TaskDefinition: aws.String("test-task"),
+	}).Return(&ecs.DescribeTaskDefinitionOutput{
+		TaskDefinition: &types.TaskDefinition{
+			ContainerDefinitions: []types.ContainerDefinition{
+				{
+					Name: aws.String(containerName),
+				},
+			},
+		},
+	}, nil)
+
+	resources, err := ecsResource.CollectServicesAndContainers(context.Background(), cluster)
+	assert.NoError(t, err)
+	assert.Len(t, resources, 1)
+	assert.Equal(t, cluster.ClusterName, resources[0].Clusters[0].ClusterName)
+	assert.Equal(t, serviceName, resources[0].Services[0].ServiceName)
+	assert.Equal(t, taskArn, resources[0].Tasks[0].TaskArn)
+	assert.Equal(t, containerName, resources[0].Containers[0].ContainerName)
+
+	mockClient.AssertExpectations(t)
+}
+
+func TestCollectTasksAndContainers(t *testing.T) {
+	mockClient := new(MockECSClient)
+	ecsResource := &ECSResource{
+		client: mockClient,
+		Region: "ap-northeast-1",
+	}
+
+	cluster := Cluster{ClusterName: "test-cluster"}
+	service := Service{ServiceName: "test-service"}
+	taskArn := "arn:aws:ecs:ap-northeast-1:123456789012:task/" + cluster.ClusterName + "/task-id"
+	taskDefinitionArn := "arn:aws:ecs:ap-northeast-1:123456789012:task-definition/test-task:1"
+
+	mockClient.On("ListTasks", mock.Anything, &ecs.ListTasksInput{
+		Cluster:     aws.String(cluster.ClusterName),
+		ServiceName: aws.String(service.ServiceName),
+	}).Return(&ecs.ListTasksOutput{
+		TaskArns: []string{taskArn},
+	}, nil)
+
+	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
+		Tasks:   []string{taskArn},
+		Cluster: aws.String(cluster.ClusterName),
+	}).Return(&ecs.DescribeTasksOutput{
+		Tasks: []types.Task{
+			{
+				TaskArn:           aws.String(taskArn),
+				TaskDefinitionArn: aws.String(taskDefinitionArn),
+			},
+		},
+	}, nil)
+
+	mockClient.On("DescribeTaskDefinition", mock.Anything, &ecs.DescribeTaskDefinitionInput{
+		TaskDefinition: aws.String(taskDefinitionArn),
+	}).Return(&ecs.DescribeTaskDefinitionOutput{
+		TaskDefinition: &types.TaskDefinition{
+			Family: aws.String("test-task"),
+		},
+	}, nil)
+
+	containerName := "test-container"
+	mockClient.On("DescribeTaskDefinition", mock.Anything, &ecs.DescribeTaskDefinitionInput{
+		TaskDefinition: aws.String("test-task"),
+	}).Return(&ecs.DescribeTaskDefinitionOutput{
+		TaskDefinition: &types.TaskDefinition{
+			ContainerDefinitions: []types.ContainerDefinition{
+				{
+					Name: aws.String(containerName),
+				},
+			},
+		},
+	}, nil)
+
+	resources, err := ecsResource.CollectTasksAndContainers(context.Background(), cluster, service)
+	assert.NoError(t, err)
+	assert.Len(t, resources, 1)
+	assert.Equal(t, cluster.ClusterName, resources[0].Clusters[0].ClusterName)
+	assert.Equal(t, service.ServiceName, resources[0].Services[0].ServiceName)
+	assert.Equal(t, taskArn, resources[0].Tasks[0].TaskArn)
+	assert.Equal(t, containerName, resources[0].Containers[0].ContainerName)
+
+	mockClient.AssertExpectations(t)
+}
