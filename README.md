@@ -1,6 +1,6 @@
 # miniecs
 
-miniecs is a cli tool to login ecs container with fuzzy finder incremental search.
+miniecs is a CLI tool that enables interactive login to ECS containers using fuzzy finder incremental search.
 
 ![Go-CI](https://github.com/jedipunkz/miniecs/workflows/Go-CI/badge.svg)
 ![CodeQL](https://github.com/jedipunkz/miniecs/workflows/CodeQL/badge.svg)
@@ -9,8 +9,8 @@ miniecs is a cli tool to login ecs container with fuzzy finder incremental searc
 
 ## Requirements
 
-- Install Go 1.22.x or later
-- Install [session-manager-plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
+- Go 1.22.x or later
+- [session-manager-plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
 
 ## Installation
 
@@ -29,17 +29,17 @@ go install github.com/jedipunkz/miniecs@latest
 
 ## Usage
 
-### Login Sub-Command
+### Login Command
 
-A sub-command to login to an ECS container with incremental searching.
+The `login` command provides an interactive way to connect to ECS containers using fuzzy search.
 
-Run the 'login' sub-command to log in to a container. If you don't specify a cluster, miniecs will find all of your clusters in the region. The 'region' option is required.
+To log in to a container, run the `login` command. If no cluster is specified, miniecs will discover all available clusters in the specified region. The `region` parameter is mandatory.
 
 ```shell
 $ miniecs login --region <REGION_NAME>
 ```
 
-You can also specify a cluster and shell. These options are optional. The default shell is 'sh'.
+You can optionally specify a cluster and shell. The default shell is 'sh'.
 
 ```shell
 $ miniecs login --region <REGION_NAME> --cluster <CLUSTER_NAME> --shell <SHELL>
