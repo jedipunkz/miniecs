@@ -268,27 +268,10 @@ func (e *ECSResource) describeTask(ctx context.Context, cluster, taskArn string)
 		return nil, fmt.Errorf("task definition ARN is nil for task: %s", taskArn)
 	}
 
-	taskDefinitionOutput, err := e.describeTaskDefinition(ctx, taskDefinitionArn)
-	if err != nil {
-		return nil, fmt.Errorf("failed to describe task definition: %w", err)
-	}
-
-	taskDefinition := ""
-	if taskDefinitionOutput.TaskDefinition != nil && taskDefinitionOutput.TaskDefinition.Family != nil {
-		taskDefinition = *taskDefinitionOutput.TaskDefinition.Family
-	}
-
 	return &Task{
 		TaskArn:        taskArn,
-		TaskDefinition: taskDefinition,
+		TaskDefinition: *taskDefinitionArn,
 	}, nil
-}
-
-func (e *ECSResource) describeTaskDefinition(ctx context.Context, taskDefinitionArn *string) (*ecs.DescribeTaskDefinitionOutput, error) {
-	input := &ecs.DescribeTaskDefinitionInput{
-		TaskDefinition: taskDefinitionArn,
-	}
-	return e.client.DescribeTaskDefinition(ctx, input)
 }
 
 func (e *ECSResource) ListContainers(ctx context.Context, taskDefinition string) error {
