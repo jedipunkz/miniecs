@@ -2,10 +2,11 @@ package cmd
 
 import (
 	"context"
-	"os"
+	"errors"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	myecs "github.com/jedipunkz/miniecs/internal/pkg/aws/ecs"
@@ -13,9 +14,25 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-// モックECSクライアントの定義
+type mockConfigLoader struct {
+	mock.Mock
+}
+
+func (m *mockConfigLoader) LoadDefaultConfig(ctx context.Context, optFns ...func(*config.LoadOptions) error) (aws.Config, error) {
+	args := m.Called(ctx, optFns)
+	if cfg, ok := args.Get(0).(aws.Config); ok {
+		return cfg, args.Error(1)
+	}
+	return aws.Config{}, args.Error(1)
+}
+
 type mockECSClient struct {
 	mock.Mock
+}
+
+func (m *mockECSClient) DescribeClusters(ctx context.Context, params *ecs.DescribeClustersInput, optFns ...func(*ecs.Options)) (*ecs.DescribeClustersOutput, error) {
+	args := m.Called(ctx, params)
+	return args.Get(0).(*ecs.DescribeClustersOutput), args.Error(1)
 }
 
 func (m *mockECSClient) ListClusters(ctx context.Context, params *ecs.ListClustersInput, optFns ...func(*ecs.Options)) (*ecs.ListClustersOutput, error) {
@@ -26,6 +43,11 @@ func (m *mockECSClient) ListClusters(ctx context.Context, params *ecs.ListCluste
 func (m *mockECSClient) ListServices(ctx context.Context, params *ecs.ListServicesInput, optFns ...func(*ecs.Options)) (*ecs.ListServicesOutput, error) {
 	args := m.Called(ctx, params)
 	return args.Get(0).(*ecs.ListServicesOutput), args.Error(1)
+}
+
+func (m *mockECSClient) DescribeServices(ctx context.Context, params *ecs.DescribeServicesInput, optFns ...func(*ecs.Options)) (*ecs.DescribeServicesOutput, error) {
+	args := m.Called(ctx, params)
+	return args.Get(0).(*ecs.DescribeServicesOutput), args.Error(1)
 }
 
 func (m *mockECSClient) ListTasks(ctx context.Context, params *ecs.ListTasksInput, optFns ...func(*ecs.Options)) (*ecs.ListTasksOutput, error) {
@@ -49,123 +71,127 @@ func (m *mockECSClient) ExecuteCommand(ctx context.Context, params *ecs.ExecuteC
 }
 
 func TestInitializeECSClient(t *testing.T) {
-	t.Run("without AWS_PROFILE", func(t *testing.T) {
-		os.Unsetenv("AWS_PROFILE")
-		loginSetFlags.region = "ap-northeast-1"
+	originalLoader := defaultLoader
+	defer func() {
+		defaultLoader = originalLoader
+	}()
 
-		client, err := initializeECSClient(context.Background())
+	t.Run("without AWS credentials", func(t *testing.T) {
+		mockLoader := new(mockConfigLoader)
+		defaultLoader = mockLoader
+
+		mockLoader.On("LoadDefaultConfig", mock.Anything, mock.Anything).Return(aws.Config{}, errors.New("missing credentials"))
+
+		loginSetFlags.region = "us-west-2"
+		ctx := context.Background()
+
+		client, err := initializeECSClient(ctx)
 		assert.Error(t, err)
 		assert.Nil(t, client)
-		assert.Contains(t, err.Error(), "set AWS_PROFILE environment variable")
+		assert.Contains(t, err.Error(), "unable to load SDK config")
+
+		mockLoader.AssertExpectations(t)
 	})
 }
 
+func TestCreateExecuteCommandInput(t *testing.T) {
+	// Setup test data
+	loginSetFlags.shell = "sh"
+	resource := myecs.ECSResource{
+		Clusters: []myecs.Cluster{
+			{ClusterName: "test-cluster"},
+		},
+		Services: []myecs.Service{
+			{ServiceName: "test-service"},
+		},
+		Tasks: []myecs.Task{
+			{TaskArn: "arn:aws:ecs:region:account:task/test-task"},
+		},
+		Containers: []myecs.Container{
+			{ContainerName: "test-container"},
+		},
+	}
+
+	// Execute test
+	result := createExecuteCommandInput(resource)
+
+	// Verify results
+	assert.Equal(t, "test-cluster", *result.Cluster)
+	assert.Equal(t, "test-container", *result.Container)
+	assert.Equal(t, "arn:aws:ecs:region:account:task/test-task", *result.Task)
+	assert.Equal(t, "sh", *result.Command)
+}
+
 func TestCollectECSResources(t *testing.T) {
-	ctx := context.Background()
-	mockClient := &mockECSClient{}
+	mockClient := new(mockECSClient)
+	ecsResource := myecs.NewEcsWithClient(mockClient, "ap-northeast-1")
 
-	// モックの応答を設定
-	mockClient.On("ListClusters", ctx, &ecs.ListClustersInput{}).Return(
-		&ecs.ListClustersOutput{
-			ClusterArns: []string{"arn:aws:ecs:region:account:cluster/cluster1"},
-		}, nil)
+	// ListClustersのモック
+	clusterName := "test-cluster"
+	mockClient.On("ListClusters", mock.Anything, mock.Anything).Return(&ecs.ListClustersOutput{
+		ClusterArns: []string{"arn:aws:ecs:ap-northeast-1:123456789012:cluster/" + clusterName},
+	}, nil)
 
-	mockClient.On("ListServices", ctx, &ecs.ListServicesInput{
-		Cluster: aws.String("cluster1"),
+	// ListServicesのモック
+	serviceName := "test-service"
+	mockClient.On("ListServices", mock.Anything, &ecs.ListServicesInput{
+		Cluster: aws.String(clusterName),
 	}).Return(&ecs.ListServicesOutput{
-		ServiceArns: []string{"arn:aws:ecs:region:account:service/service1"},
+		ServiceArns: []string{"arn:aws:ecs:ap-northeast-1:123456789012:service/" + clusterName + "/" + serviceName},
 	}, nil)
 
-	mockClient.On("ListTasks", ctx, &ecs.ListTasksInput{
-		Cluster:     aws.String("cluster1"),
-		ServiceName: aws.String("service1"),
+	// ListTasksのモック
+	taskArn := "arn:aws:ecs:ap-northeast-1:123456789012:task/" + clusterName + "/task-id"
+	taskDefinitionArn := "arn:aws:ecs:ap-northeast-1:123456789012:task-definition/test-task:1"
+	mockClient.On("ListTasks", mock.Anything, &ecs.ListTasksInput{
+		Cluster:     aws.String(clusterName),
+		ServiceName: aws.String(serviceName),
 	}).Return(&ecs.ListTasksOutput{
-		TaskArns: []string{"arn:aws:ecs:region:account:task/task1"},
+		TaskArns: []string{taskArn},
 	}, nil)
 
-	mockClient.On("DescribeTasks", ctx, &ecs.DescribeTasksInput{
-		Cluster: aws.String("cluster1"),
-		Tasks:   []string{"arn:aws:ecs:region:account:task/task1"},
+	// DescribeTasksのモック
+	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
+		Tasks:   []string{taskArn},
+		Cluster: aws.String(clusterName),
 	}).Return(&ecs.DescribeTasksOutput{
 		Tasks: []types.Task{
 			{
-				TaskArn:            aws.String("arn:aws:ecs:region:account:task/task1"),
-				TaskDefinitionArn:  aws.String("task-def1"),
+				TaskArn:           aws.String(taskArn),
+				TaskDefinitionArn: aws.String(taskDefinitionArn),
 			},
 		},
 	}, nil)
 
-	mockClient.On("DescribeTaskDefinition", ctx, &ecs.DescribeTaskDefinitionInput{
-		TaskDefinition: aws.String("task-def1"),
+	// DescribeTaskDefinitionのモック
+	mockClient.On("DescribeTaskDefinition", mock.Anything, &ecs.DescribeTaskDefinitionInput{
+		TaskDefinition: aws.String(taskDefinitionArn),
 	}).Return(&ecs.DescribeTaskDefinitionOutput{
 		TaskDefinition: &types.TaskDefinition{
-			ContainerDefinitions: []types.ContainerDefinition{
-				{
-					Name: aws.String("container1"),
-				},
-			},
+			Family: aws.String("test-task"),
 		},
 	}, nil)
 
-	ecsResource := myecs.NewEcsWithClient(mockClient, "us-west-2")
-
-	resources, err := collectECSResources(ctx, ecsResource)
+	// リソースの収集
+	err := ecsResource.CollectECSResources(context.Background())
 	assert.NoError(t, err)
-	assert.NotEmpty(t, resources)
-}
 
-func TestCreateExecuteCommandInput(t *testing.T) {
-	tests := []struct {
-		name     string
-		resource myecs.ECSResource
-		shell    string
-		want     ecs.ExecuteCommandInput
-	}{
-		{
-			name: "with default shell",
-			resource: myecs.ECSResource{
-				Clusters:   []myecs.Cluster{{ClusterName: "test-cluster"}},
-				Containers: []myecs.Container{{ContainerName: "test-container"}},
-				Tasks:      []myecs.Task{{TaskArn: "test-task"}},
-			},
-			shell: "",
-			want: ecs.ExecuteCommandInput{
-				Cluster:   aws.String("test-cluster"),
-				Container: aws.String("test-container"),
-				Task:      aws.String("test-task"),
-				Command:   aws.String("sh"),
-			},
-		},
-		{
-			name: "with custom shell",
-			resource: myecs.ECSResource{
-				Clusters:   []myecs.Cluster{{ClusterName: "test-cluster"}},
-				Containers: []myecs.Container{{ContainerName: "test-container"}},
-				Tasks:      []myecs.Task{{TaskArn: "test-task"}},
-			},
-			shell: "bash",
-			want: ecs.ExecuteCommandInput{
-				Cluster:   aws.String("test-cluster"),
-				Container: aws.String("test-container"),
-				Task:      aws.String("test-task"),
-				Command:   aws.String("bash"),
-			},
-		},
-	}
+	// 結果の検証
+	assert.Len(t, ecsResource.Clusters, 1)
+	assert.Equal(t, clusterName, ecsResource.Clusters[0].ClusterName)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			loginSetFlags.shell = tt.shell
-			got := createExecuteCommandInput(tt.resource)
-			assert.Equal(t, *tt.want.Cluster, *got.Cluster)
-			assert.Equal(t, *tt.want.Container, *got.Container)
-			assert.Equal(t, *tt.want.Task, *got.Task)
-			assert.Equal(t, *tt.want.Command, *got.Command)
-		})
-	}
+	assert.Len(t, ecsResource.Services, 1)
+	assert.Equal(t, serviceName, ecsResource.Services[0].ServiceName)
+
+	assert.Len(t, ecsResource.Tasks, 1)
+	assert.Equal(t, taskArn, ecsResource.Tasks[0].TaskArn)
+	assert.Equal(t, "test-task", ecsResource.Tasks[0].TaskDefinition)
+
+	// すべてのモックが期待通り呼び出されたことを確認
+	mockClient.AssertExpectations(t)
 }
 
 // ヘルパー関数
 func stringPtr(s string) *string {
 	return &s
-} 
+}

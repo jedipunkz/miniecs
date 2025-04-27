@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	myecs "github.com/jedipunkz/miniecs/internal/pkg/aws/ecs"
@@ -25,6 +26,18 @@ var loginCmd = &cobra.Command{
 	Short: "login cluster, service",
 	Run:   runLoginCmd,
 }
+
+type configLoader interface {
+	LoadDefaultConfig(ctx context.Context, optFns ...func(*config.LoadOptions) error) (aws.Config, error)
+}
+
+type defaultConfigLoader struct{}
+
+func (d *defaultConfigLoader) LoadDefaultConfig(ctx context.Context, optFns ...func(*config.LoadOptions) error) (aws.Config, error) {
+	return config.LoadDefaultConfig(ctx, optFns...)
+}
+
+var defaultLoader configLoader = &defaultConfigLoader{}
 
 func runLoginCmd(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
@@ -50,7 +63,7 @@ func runLoginCmd(cmd *cobra.Command, args []string) {
 }
 
 func initializeECSClient(ctx context.Context) (*myecs.ECSResource, error) {
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(loginSetFlags.region))
+	cfg, err := defaultLoader.LoadDefaultConfig(ctx, config.WithRegion(loginSetFlags.region))
 	if err != nil {
 		return nil, fmt.Errorf("unable to load SDK config: %w", err)
 	}
