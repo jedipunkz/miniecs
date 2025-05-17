@@ -52,9 +52,13 @@ func runlistCmd(cmd *cobra.Command, args []string) {
 			"Task Definition",
 			"Container"}))
 	for _, row := range ecsTable {
-		table.Append(row)
+		if err := table.Append(row); err != nil {
+			log.Fatal(err)
+		}
 	}
-	table.Render()
+	if err := table.Render(); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func listECSTable(ctx context.Context, e *myecs.ECSResource) ([][]string, error) {
