@@ -45,15 +45,20 @@ func runlistCmd(cmd *cobra.Command, args []string) {
 		log.Fatal(err)
 	}
 
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{
-		"Cluster",
-		"Service",
-		"Task Definition",
-		"Container"})
-	table.SetBorder(true)
-	table.AppendBulk(ecsTable)
-	table.Render()
+	table := tablewriter.NewTable(os.Stdout,
+		tablewriter.WithHeader([]string{
+			"Cluster",
+			"Service",
+			"Task Definition",
+			"Container"}))
+	for _, row := range ecsTable {
+		if err := table.Append(row); err != nil {
+			log.Fatal(err)
+		}
+	}
+	if err := table.Render(); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func listECSTable(ctx context.Context, e *myecs.ECSResource) ([][]string, error) {
