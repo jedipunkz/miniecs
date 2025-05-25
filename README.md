@@ -9,7 +9,7 @@ miniecs is a CLI tool that enables interactive login to ECS containers using fuz
 
 ## Requirements
 
-- Go 1.22.x or later
+- Go 1.24.x or later
 - [session-manager-plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
 
 ## Installation
