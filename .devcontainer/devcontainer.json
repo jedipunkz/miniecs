@@ -1,0 +1,21 @@
+{
+    "name": "miniecs",
+    "image": "mcr.microsoft.com/devcontainers/go:1.24",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "golang.go"
+            ]
+        }
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/aws-cli:1": {}
+    },
+    "remoteUser": "vscode",
+    "mounts": [
+        "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind"
+    ],
+    "postCreateCommand": "/workspace/.devcontainer/postCreate.sh"
+}
+
