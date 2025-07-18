@@ -164,18 +164,27 @@ func (e *ECSResource) ListClusters(ctx context.Context) error {
 		return fmt.Errorf("failed to list clusters: %w", err)
 	}
 
-	clusterNames := extractClusterNames(resultClusters.ClusterArns)
+	clusterNames, err := extractClusterNames(resultClusters.ClusterArns)
+	if err != nil {
+		return fmt.Errorf("failed to extract cluster names: %w", err)
+	}
 	e.Clusters = createClusters(clusterNames)
 	return nil
 }
 
-func extractClusterNames(clusterArns []string) []string {
+func extractClusterNames(clusterArns []string) ([]string, error) {
 	var names []string
 	for _, cluster := range clusterArns {
+		if cluster == "" {
+			return nil, fmt.Errorf("empty cluster ARN")
+		}
 		parts := strings.Split(cluster, "/")
+		if len(parts) == 0 {
+			return nil, fmt.Errorf("invalid cluster ARN format: %s", cluster)
+		}
 		names = append(names, parts[len(parts)-1])
 	}
-	return names
+	return names, nil
 }
 
 func createClusters(names []string) []Cluster {
@@ -193,18 +202,27 @@ func (e *ECSResource) ListServices(ctx context.Context, cluster string) error {
 		return fmt.Errorf("failed to list services: %w", err)
 	}
 
-	serviceNames := extractServiceNames(resultServices.ServiceArns)
+	serviceNames, err := extractServiceNames(resultServices.ServiceArns)
+	if err != nil {
+		return fmt.Errorf("failed to extract service names: %w", err)
+	}
 	e.Services = createServices(serviceNames)
 	return nil
 }
 
-func extractServiceNames(serviceArns []string) []string {
+func extractServiceNames(serviceArns []string) ([]string, error) {
 	var names []string
 	for _, service := range serviceArns {
+		if service == "" {
+			return nil, fmt.Errorf("empty service ARN")
+		}
 		parts := strings.Split(service, "/")
+		if len(parts) == 0 {
+			return nil, fmt.Errorf("invalid service ARN format: %s", service)
+		}
 		names = append(names, parts[len(parts)-1])
 	}
-	return names
+	return names, nil
 }
 
 func createServices(names []string) []Service {
@@ -236,16 +254,24 @@ func (e *ECSResource) GetTasks(ctx context.Context, cluster, service string) err
 
 func (e *ECSResource) describeTasks(ctx context.Context, cluster string, taskArns []string) ([]Task, error) {
 	var tasks []Task
+	var errors []error
+	
 	for _, taskArn := range taskArns {
 		task, err := e.describeTask(ctx, cluster, taskArn)
 		if err != nil {
 			log.Printf("Failed to describe task %s: %v", taskArn, err)
+			errors = append(errors, fmt.Errorf("failed to describe task %s: %w", taskArn, err))
 			continue
 		}
 		if task != nil {
 			tasks = append(tasks, *task)
 		}
 	}
+	
+	if len(errors) > 0 && len(tasks) == 0 {
+		return nil, fmt.Errorf("failed to describe any tasks: %d errors occurred", len(errors))
+	}
+	
 	return tasks, nil
 }
 
@@ -284,18 +310,25 @@ func (e *ECSResource) ListContainers(ctx context.Context, taskDefinition string)
 		return fmt.Errorf("failed to describe task definition: %w", err)
 	}
 
-	e.Containers = extractContainers(result.TaskDefinition.ContainerDefinitions)
+	containers, err := extractContainers(result.TaskDefinition.ContainerDefinitions)
+	if err != nil {
+		return fmt.Errorf("failed to extract containers: %w", err)
+	}
+	e.Containers = containers
 	return nil
 }
 
-func extractContainers(containerDefinitions []types.ContainerDefinition) []Container {
+func extractContainers(containerDefinitions []types.ContainerDefinition) ([]Container, error) {
 	var containers []Container
 	for _, container := range containerDefinitions {
+		if container.Name == nil {
+			return nil, fmt.Errorf("container name is nil")
+		}
 		containers = append(containers, Container{
 			ContainerName: *container.Name,
 		})
 	}
-	return containers
+	return containers, nil
 }
 
 func (e *ECSResource) CollectECSResources(ctx context.Context) error {
