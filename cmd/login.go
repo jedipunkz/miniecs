@@ -99,9 +99,7 @@ func showResourcePicker(ecsResources []myecs.ECSResource) ([]int, error) {
 		ecsResources,
 		func(i int) string {
 			if len(ecsResources[i].Clusters) > 0 {
-				return fmt.Sprintf("%s",
-					ecsResources[i].Clusters[0].ClusterName,
-				)
+				return ecsResources[i].Clusters[0].ClusterName
 			}
 			return ""
 		},
