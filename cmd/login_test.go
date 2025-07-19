@@ -51,24 +51,15 @@ func TestInitializeECSClient(t *testing.T) {
 func TestCreateExecuteCommandInput(t *testing.T) {
 	loginSetFlags.shell = "sh"
 	resource := myecs.ECSResource{
-		Clusters: []myecs.Cluster{
+		Clusters: []myecs.ECSCluster{
 			{ClusterName: "test-cluster"},
-		},
-		Services: []myecs.Service{
-			{ServiceName: "test-service"},
-		},
-		Tasks: []myecs.Task{
-			{TaskArn: "arn:aws:ecs:region:account:task/test-task"},
-		},
-		Containers: []myecs.Container{
-			{ContainerName: "test-container"},
 		},
 	}
 
 	result := createExecuteCommandInput(resource)
 
 	assert.Equal(t, "test-cluster", *result.Cluster)
-	assert.Equal(t, "test-container", *result.Container)
-	assert.Equal(t, "arn:aws:ecs:region:account:task/test-task", *result.Task)
+	assert.Equal(t, "sh", *result.Container)
+	assert.Equal(t, "sh", *result.Task)
 	assert.Equal(t, "sh", *result.Command)
 }

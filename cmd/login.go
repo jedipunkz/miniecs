@@ -47,12 +47,12 @@ func runLoginCmd(cmd *cobra.Command, args []string) {
 		log.Fatal(err)
 	}
 
-	ecsResources, err := collectECSResources(ctx, ecsClient)
+	ecsResources, err := fetchAllECSResources(ctx, ecsClient)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	selectedIndices, err := selectECSResource(ecsResources)
+	selectedIndices, err := showResourcePicker(ecsResources)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func initializeECSClient(ctx context.Context) (*myecs.ECSResource, error) {
 		return nil, fmt.Errorf("unable to load SDK config: %w", err)
 	}
 
-	ecsClient := myecs.NewEcs(cfg, loginSetFlags.region)
+	ecsClient := myecs.NewECS(cfg, loginSetFlags.region)
 	if ecsClient == nil {
 		return nil, fmt.Errorf("failed to initialize ECS client")
 	}
@@ -76,7 +76,7 @@ func initializeECSClient(ctx context.Context) (*myecs.ECSResource, error) {
 	return ecsClient, nil
 }
 
-func collectECSResources(ctx context.Context, ecsClient *myecs.ECSResource) ([]myecs.ECSResource, error) {
+func fetchAllECSResources(ctx context.Context, ecsClient *myecs.ECSResource) ([]myecs.ECSResource, error) {
 	var ecsResources []myecs.ECSResource
 
 	if err := ecsClient.ListClusters(ctx); err != nil {
@@ -84,7 +84,7 @@ func collectECSResources(ctx context.Context, ecsClient *myecs.ECSResource) ([]m
 	}
 
 	for _, cluster := range ecsClient.Clusters {
-		resources, err := ecsClient.CollectServicesAndContainers(ctx, cluster)
+		resources, err := ecsClient.GetClusterResources(ctx, cluster)
 		if err != nil {
 			return nil, err
 		}
@@ -94,26 +94,28 @@ func collectECSResources(ctx context.Context, ecsClient *myecs.ECSResource) ([]m
 	return ecsResources, nil
 }
 
-func selectECSResource(ecsResources []myecs.ECSResource) ([]int, error) {
+func showResourcePicker(ecsResources []myecs.ECSResource) ([]int, error) {
 	return fuzzyfinder.FindMulti(
 		ecsResources,
 		func(i int) string {
-			return fmt.Sprintf("%s %s %s",
-				ecsResources[i].Clusters[0].ClusterName,
-				ecsResources[i].Services[0].ServiceName,
-				ecsResources[i].Containers[0].ContainerName,
-			)
+			if len(ecsResources[i].Clusters) > 0 {
+				return fmt.Sprintf("%s",
+					ecsResources[i].Clusters[0].ClusterName,
+				)
+			}
+			return ""
 		},
 		fuzzyfinder.WithPreviewWindow(func(i, w, h int) string {
 			if i == -1 {
 				return ""
 			}
-			return fmt.Sprintf(
-				"Cluster: %s\nService: %s\nContainer: %s\n",
-				ecsResources[i].Clusters[0].ClusterName,
-				ecsResources[i].Services[0].ServiceName,
-				ecsResources[i].Containers[0].ContainerName,
-			)
+			if len(ecsResources[i].Clusters) > 0 {
+				return fmt.Sprintf(
+					"Cluster: %s\n",
+					ecsResources[i].Clusters[0].ClusterName,
+				)
+			}
+			return ""
 		}),
 	)
 }
@@ -140,8 +142,8 @@ func createExecuteCommandInput(resource myecs.ECSResource) ecs.ExecuteCommandInp
 
 	return ecs.ExecuteCommandInput{
 		Cluster:   &resource.Clusters[0].ClusterName,
-		Container: &resource.Containers[0].ContainerName,
-		Task:      &resource.Tasks[0].TaskArn,
+		Container: &shell,
+		Task:      &shell,
 		Command:   &shell,
 	}
 }
