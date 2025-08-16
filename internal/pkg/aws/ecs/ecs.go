@@ -375,8 +375,21 @@ func (e *ECSResource) GetClusterResources(ctx context.Context, cluster ECSCluste
 		return nil, fmt.Errorf("failed to list services: %w", err)
 	}
 
-	for _, service := range cluster.Services {
-		serviceResources, err := e.GetServiceResources(ctx, cluster, service)
+	// Find the updated cluster with services from e.Clusters
+	var updatedCluster *ECSCluster
+	for i := range e.Clusters {
+		if e.Clusters[i].ClusterName == cluster.ClusterName {
+			updatedCluster = &e.Clusters[i]
+			break
+		}
+	}
+
+	if updatedCluster == nil {
+		return nil, fmt.Errorf("cluster not found after listing services: %s", cluster.ClusterName)
+	}
+
+	for _, service := range updatedCluster.Services {
+		serviceResources, err := e.GetServiceResources(ctx, *updatedCluster, service)
 		if err != nil {
 			return nil, err
 		}
@@ -393,7 +406,17 @@ func (e *ECSResource) GetServiceResources(ctx context.Context, cluster ECSCluste
 		return nil, fmt.Errorf("failed to get tasks: %w", err)
 	}
 
-	tasks, err := e.describeTasks(ctx, cluster.ClusterName, []string{})
+	// Get all tasks for this service
+	inputTask := &ecs.ListTasksInput{
+		Cluster:     aws.String(cluster.ClusterName),
+		ServiceName: aws.String(service.ServiceName),
+	}
+	resultTasks, err := e.client.ListTasks(ctx, inputTask)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tasks: %w", err)
+	}
+
+	tasks, err := e.describeTasks(ctx, cluster.ClusterName, resultTasks.TaskArns)
 	if err != nil {
 		return nil, fmt.Errorf("failed to describe tasks: %w", err)
 	}
@@ -402,17 +425,31 @@ func (e *ECSResource) GetServiceResources(ctx context.Context, cluster ECSCluste
 		return resources, nil
 	}
 
-	task := tasks[0]
+	// For each task, get containers and create a complete resource
+	for _, task := range tasks {
+		containers, err := e.ListContainersForTask(ctx, task.TaskDefinition)
+		if err != nil {
+			log.Printf("Failed to list containers for task %s: %v", task.TaskArn, err)
+			continue
+		}
 
-	containers, err := e.ListContainersForTask(ctx, task.TaskDefinition)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list containers: %w", err)
-	}
+		// Update task with containers
+		task.Containers = containers
 
-	for range containers {
-		resources = append(resources, ECSResource{
-			Clusters: []ECSCluster{cluster},
-		})
+		// Create a complete resource with all hierarchical data
+		resource := ECSResource{
+			Clusters: []ECSCluster{{
+				ClusterName: cluster.ClusterName,
+				ClusterArn:  cluster.ClusterArn,
+				Services: []ECSService{{
+					ServiceName: service.ServiceName,
+					ServiceArn:  service.ServiceArn,
+					ClusterName: cluster.ClusterName,
+					Tasks:       []ECSTask{task},
+				}},
+			}},
+		}
+		resources = append(resources, resource)
 	}
 
 	return resources, nil

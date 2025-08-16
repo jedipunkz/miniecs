@@ -21,7 +21,7 @@ func TestListECSTable(t *testing.T) {
 			expectedOutput: [][]string{},
 		},
 		{
-			name:           "list specific cluster", 
+			name:           "list specific cluster",
 			cluster:        "test-cluster",
 			expectedOutput: [][]string{},
 		},
