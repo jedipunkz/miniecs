@@ -30,7 +30,7 @@ func runlistCmd(cmd *cobra.Command, args []string) {
 		log.Fatalf("unable to load SDK config, %v", err)
 	}
 
-	e := myecs.NewEcs(cfg, listSetFlags.region)
+	e := myecs.NewECS(cfg, listSetFlags.region)
 	if e == nil {
 		log.Fatal("failed to initialize ECS client")
 	}
@@ -66,34 +66,40 @@ func listECSTable(ctx context.Context, e *myecs.ECSResource) ([][]string, error)
 
 	if listSetFlags.cluster == "" {
 		for _, cluster := range e.Clusters {
-			resources, err := e.CollectServicesAndContainers(ctx, cluster)
+			resources, err := e.GetClusterResources(ctx, cluster)
 			if err != nil {
 				return nil, err
 			}
 
 			for _, resource := range resources {
-				ecsTable = append(ecsTable, []string{
-					resource.Clusters[0].ClusterName,
-					resource.Services[0].ServiceName,
-					resource.Tasks[0].TaskDefinition,
-					resource.Containers[0].ContainerName,
-				})
+				if len(resource.Clusters) > 0 {
+					clusterName := resource.Clusters[0].ClusterName
+					ecsTable = append(ecsTable, []string{
+						clusterName,
+						"",
+						"",
+						"",
+					})
+				}
 			}
 		}
 	} else {
-		cluster := myecs.Cluster{ClusterName: listSetFlags.cluster}
-		resources, err := e.CollectServicesAndContainers(ctx, cluster)
+		cluster := myecs.ECSCluster{ClusterName: listSetFlags.cluster}
+		resources, err := e.GetClusterResources(ctx, cluster)
 		if err != nil {
 			return nil, err
 		}
 
 		for _, resource := range resources {
-			ecsTable = append(ecsTable, []string{
-				resource.Clusters[0].ClusterName,
-				resource.Services[0].ServiceName,
-				resource.Tasks[0].TaskDefinition,
-				resource.Containers[0].ContainerName,
-			})
+			if len(resource.Clusters) > 0 {
+				clusterName := resource.Clusters[0].ClusterName
+				ecsTable = append(ecsTable, []string{
+					clusterName,
+					"",
+					"",
+					"",
+				})
+			}
 		}
 	}
 
