@@ -50,7 +50,6 @@ func runLoginCmd(cmd *cobra.Command, args []string) {
 }
 
 func initializeECSClient(ctx context.Context) (*myecs.ECSResource, error) {
-	// AWS SDKの設定を直接読み込む（シンプルで理解しやすい）
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(loginSetFlags.region))
 	if err != nil {
 		return nil, fmt.Errorf("unable to load SDK config: %w", err)
@@ -83,7 +82,6 @@ func fetchAllECSResources(ctx context.Context, ecsClient *myecs.ECSResource) ([]
 }
 
 func showResourcePicker(ecsResources []myecs.ECSResource) ([]myecs.ECSResource, error) {
-	// Build a flat list of selectable items
 	type selectableItem struct {
 		resourceIndex int
 		cluster       myecs.ECSCluster
