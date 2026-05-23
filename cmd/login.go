@@ -81,42 +81,62 @@ func fetchAllECSResources(ctx context.Context, ecsClient *myecs.ECSResource) ([]
 	return ecsResources, nil
 }
 
-func showResourcePicker(ecsResources []myecs.ECSResource) ([]myecs.ECSResource, error) {
-	type selectableItem struct {
-		resourceIndex int
-		cluster       myecs.ECSCluster
-		service       myecs.ECSService
-		task          myecs.ECSTask
-		container     myecs.ECSContainer
-	}
+type selectableItem struct {
+	resourceIndex int
+	cluster       myecs.ECSCluster
+	service       myecs.ECSService
+	task          myecs.ECSTask
+	container     myecs.ECSContainer
+}
 
+func buildSelectableItems(ecsResources []myecs.ECSResource) []selectableItem {
 	var items []selectableItem
 	for idx, resource := range ecsResources {
-		if len(resource.Clusters) == 0 {
-			continue
-		}
-		cluster := resource.Clusters[0]
-		if len(cluster.Services) > 0 {
-			for _, service := range cluster.Services {
-				if len(service.Tasks) > 0 {
-					for _, task := range service.Tasks {
-						if len(task.Containers) > 0 {
-							for _, container := range task.Containers {
-								items = append(items, selectableItem{
-									resourceIndex: idx,
-									cluster:       cluster,
-									service:       service,
-									task:          task,
-									container:     container,
-								})
-							}
-						}
-					}
-				}
-			}
-		}
+		items = append(items, extractItemsFromResource(idx, resource)...)
 	}
+	return items
+}
 
+func extractItemsFromResource(resourceIndex int, resource myecs.ECSResource) []selectableItem {
+	if len(resource.Clusters) == 0 {
+		return nil
+	}
+	cluster := resource.Clusters[0]
+	return extractItemsFromServices(resourceIndex, cluster)
+}
+
+func extractItemsFromServices(resourceIndex int, cluster myecs.ECSCluster) []selectableItem {
+	var items []selectableItem
+	for _, service := range cluster.Services {
+		items = append(items, extractItemsFromTasks(resourceIndex, cluster, service)...)
+	}
+	return items
+}
+
+func extractItemsFromTasks(resourceIndex int, cluster myecs.ECSCluster, service myecs.ECSService) []selectableItem {
+	var items []selectableItem
+	for _, task := range service.Tasks {
+		items = append(items, extractItemsFromContainers(resourceIndex, cluster, service, task)...)
+	}
+	return items
+}
+
+func extractItemsFromContainers(resourceIndex int, cluster myecs.ECSCluster, service myecs.ECSService, task myecs.ECSTask) []selectableItem {
+	var items []selectableItem
+	for _, container := range task.Containers {
+		items = append(items, selectableItem{
+			resourceIndex: resourceIndex,
+			cluster:       cluster,
+			service:       service,
+			task:          task,
+			container:     container,
+		})
+	}
+	return items
+}
+
+func showResourcePicker(ecsResources []myecs.ECSResource) ([]myecs.ECSResource, error) {
+	items := buildSelectableItems(ecsResources)
 	if len(items) == 0 {
 		return nil, fmt.Errorf("no ECS resources found")
 	}
@@ -200,30 +220,48 @@ func executeLogin(ecsClient *myecs.ECSResource, selectedResources []myecs.ECSRes
 }
 
 func createExecuteCommandInput(resource myecs.ECSResource) ecs.ExecuteCommandInput {
-	shell := loginSetFlags.shell
-	if shell == "" {
-		shell = "sh"
-	}
-
-	// Extract task and container information from the hierarchical structure
-	var containerName, taskArn string
-	if len(resource.Clusters) > 0 && len(resource.Clusters[0].Services) > 0 {
-		service := resource.Clusters[0].Services[0]
-		if len(service.Tasks) > 0 {
-			task := service.Tasks[0]
-			taskArn = task.TaskArn
-			if len(task.Containers) > 0 {
-				containerName = task.Containers[0].ContainerName
-			}
-		}
-	}
+	shell := getShell()
+	containerName, taskArn := extractTaskAndContainer(resource)
+	clusterName := resource.Clusters[0].ClusterName
 
 	return ecs.ExecuteCommandInput{
-		Cluster:   &resource.Clusters[0].ClusterName,
+		Cluster:   &clusterName,
 		Container: &containerName,
 		Task:      &taskArn,
 		Command:   &shell,
 	}
+}
+
+func getShell() string {
+	if loginSetFlags.shell != "" {
+		return loginSetFlags.shell
+	}
+	return "sh"
+}
+
+func extractTaskAndContainer(resource myecs.ECSResource) (containerName, taskArn string) {
+	if len(resource.Clusters) == 0 {
+		return "", ""
+	}
+
+	services := resource.Clusters[0].Services
+	if len(services) == 0 {
+		return "", ""
+	}
+
+	tasks := services[0].Tasks
+	if len(tasks) == 0 {
+		return "", ""
+	}
+
+	task := tasks[0]
+	taskArn = task.TaskArn
+
+	if len(task.Containers) > 0 {
+		containerName = task.Containers[0].ContainerName
+	}
+
+	return containerName, taskArn
 }
 
 func init() {

@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/aws/aws-sdk-go-v2 v1.39.4
 	github.com/aws/aws-sdk-go-v2/config v1.31.15
-	github.com/aws/aws-sdk-go-v2/service/ecs v1.63.0
+	github.com/aws/aws-sdk-go-v2/service/ecs v1.65.4
 	github.com/ktr0731/go-fuzzyfinder v0.9.0
 	github.com/olekukonko/tablewriter v1.0.9
 	github.com/sirupsen/logrus v1.9.3
