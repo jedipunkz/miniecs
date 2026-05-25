@@ -9,7 +9,7 @@ require (
 	github.com/ktr0731/go-fuzzyfinder v0.9.0
 	github.com/olekukonko/tablewriter v1.0.9
 	github.com/sirupsen/logrus v1.9.3
-	github.com/spf13/cobra v1.10.1
+	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 )
 
