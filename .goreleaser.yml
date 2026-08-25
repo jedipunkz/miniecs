@@ -18,6 +18,9 @@ builds:
       - arm64
     mod_timestamp: '{{ .CommitTimestamp }}'
 
+changelog:
+  use: github-native
+
 brews:
   - commit_author:
       name: goreleasebot
