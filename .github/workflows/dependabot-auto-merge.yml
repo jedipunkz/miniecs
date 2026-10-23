@@ -1,17 +1,24 @@
 name: Dependabot auto-merge
 
+# pull_request (not pull_request_target): Dependabot PRs get a write token
+# on pull_request when the job requests it, and the workflow never runs
+# with secrets on PRs from forks.
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   auto-merge:
-    if: github.actor == 'dependabot[bot]'
+    # Check the PR author, not github.actor: the actor is whoever triggered
+    # the event and can be spoofed by re-running a Dependabot workflow.
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Fetch Dependabot metadata
         id: metadata
@@ -19,6 +26,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # Major updates are merged by hand.
       - name: Enable auto-merge for minor and patch updates
         if: steps.metadata.outputs.update-type == 'version-update:semver-minor' || steps.metadata.outputs.update-type == 'version-update:semver-patch'
         run: gh pr merge --auto --squash "$PR_URL"

@@ -28,8 +28,10 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      # git-vertag-action pushes the new tag with the persisted
+      # credentials. No later step uploads artifacts from the workspace.
       - name: Checkout Sources
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7 # zizmor: ignore[artipacked]
         with:
           fetch-depth: 0
 
@@ -44,6 +46,8 @@ jobs:
         with:
           go-version: stable
           check-latest: true
+          # Never restore a cache into the release build.
+          cache: false
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
