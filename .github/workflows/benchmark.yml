@@ -1,0 +1,63 @@
+name: Benchmark
+
+on:
+  pull_request:
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/benchmark.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmark-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: Benchmark
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Check Out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set Up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # Base and head are measured on the same runner so the numbers are
+      # comparable. benchstat compares the sample distributions and the
+      # result is posted as a PR comment.
+      - name: Compare Benchmarks With Base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+          bench() {
+            (cd "$1" && go test -run '^$' -bench . -benchmem -count=10 ./... | tee "$2")
+          }
+          bench . /tmp/bench-head.txt
+          git worktree add ../base "$BASE_SHA"
+          bench ../base /tmp/bench-base.txt
+          go run golang.org/x/perf/cmd/benchstat@v0.0.0-20261009192801-be2c69fb417e \
+            /tmp/bench-base.txt /tmp/bench-head.txt | tee /tmp/benchstat.txt
+          cat /tmp/benchstat.txt >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo '### Benchmark Results'
+            echo ''
+            echo '```'
+            cat /tmp/benchstat.txt
+            echo '```'
+          } > /tmp/comment.md
+          gh pr comment "$PR_NUMBER" --body-file /tmp/comment.md
