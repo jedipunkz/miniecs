@@ -9,127 +9,178 @@ import (
 
 func TestCreateExecuteCommandInput(t *testing.T) {
 	loginSetFlags.shell = "sh"
-	resource := myecs.ECSResource{
-		Clusters: []myecs.ECSCluster{
-			{
-				ClusterName: "test-cluster",
-				Services: []myecs.ECSService{
-					{
-						ServiceName: "test-service",
-						Tasks: []myecs.ECSTask{
-							{
-								TaskArn: "arn:aws:ecs:us-east-1:123456789012:task/test-task",
-								Containers: []myecs.ECSContainer{
-									{
-										ContainerName: "test-container",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
+	item := selectableItem{
+		cluster: myecs.ECSCluster{
+			ClusterName: "test-cluster",
+		},
+		service: myecs.ECSService{
+			ServiceName: "test-service",
+		},
+		task: myecs.ECSTask{
+			TaskArn: "arn:aws:ecs:us-east-1:123456789012:task/test-task",
+		},
+		container: myecs.ECSContainer{
+			ContainerName: "test-container",
 		},
 	}
 
-	result, err := createExecuteCommandInput(resource)
+	result := createExecuteCommandInput(item)
 
-	assert.NoError(t, err)
 	assert.Equal(t, "test-cluster", *result.Cluster)
 	assert.Equal(t, "test-container", *result.Container)
 	assert.Equal(t, "arn:aws:ecs:us-east-1:123456789012:task/test-task", *result.Task)
 	assert.Equal(t, "sh", *result.Command)
 }
 
-func TestExtractTaskAndContainer(t *testing.T) {
-	// baseResource returns a fresh resource each call: mutators write to
-	// slice backing arrays, which would otherwise leak between cases.
-	baseResource := func() myecs.ECSResource {
-		return myecs.ECSResource{
-			Clusters: []myecs.ECSCluster{{
-				ClusterName: "test-cluster",
-				Services: []myecs.ECSService{{
-					Tasks: []myecs.ECSTask{{
-						TaskArn: "arn:aws:ecs:us-east-1:123456789012:task/test-task",
-						Containers: []myecs.ECSContainer{{
-							ContainerName: "test-container",
-						}},
-					}},
-				}},
-			}},
-		}
-	}
-
-	cases := []struct {
-		name    string
-		mutator func(resource *myecs.ECSResource)
-		wantMsg string
+func TestGetShell(t *testing.T) {
+	tests := []struct {
+		name     string
+		shell    string
+		expected string
 	}{
 		{
-			name:    "no clusters",
-			mutator: func(r *myecs.ECSResource) { r.Clusters = nil },
-			wantMsg: "no cluster information",
+			name:     "default shell when flag is empty",
+			shell:    "",
+			expected: "sh",
 		},
 		{
-			name: "no services",
-			mutator: func(r *myecs.ECSResource) {
-				r.Clusters[0].Services = nil
-			},
-			wantMsg: "no service information",
-		},
-		{
-			name: "no tasks",
-			mutator: func(r *myecs.ECSResource) {
-				r.Clusters[0].Services[0].Tasks = nil
-			},
-			wantMsg: "no task information",
-		},
-		{
-			name: "empty task ARN",
-			mutator: func(r *myecs.ECSResource) {
-				r.Clusters[0].Services[0].Tasks[0].TaskArn = ""
-			},
-			wantMsg: "task has no task ARN",
-		},
-		{
-			name: "no containers",
-			mutator: func(r *myecs.ECSResource) {
-				r.Clusters[0].Services[0].Tasks[0].Containers = nil
-			},
-			wantMsg: "has no containers",
-		},
-		{
-			name: "empty container name",
-			mutator: func(r *myecs.ECSResource) {
-				r.Clusters[0].Services[0].Tasks[0].Containers[0].ContainerName = ""
-			},
-			wantMsg: "has no container name",
+			name:     "shell flag overrides default",
+			shell:    "bash",
+			expected: "bash",
 		},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			resource := baseResource()
-			tc.mutator(&resource)
-			_, _, err := extractTaskAndContainer(resource)
-			assert.ErrorContains(t, err, tc.wantMsg)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loginSetFlags.shell = tt.shell
+			defer func() { loginSetFlags.shell = "" }()
+
+			assert.Equal(t, tt.expected, getShell())
 		})
 	}
-
-	containerName, taskArn, err := extractTaskAndContainer(baseResource())
-	assert.NoError(t, err)
-	assert.Equal(t, "test-container", containerName)
-	assert.Equal(t, "arn:aws:ecs:us-east-1:123456789012:task/test-task", taskArn)
+	loginSetFlags.shell = ""
 }
 
-func TestExecuteLoginRejectsInvalidSelection(t *testing.T) {
-	err := executeLogin(&myecs.ECSResource{}, nil)
-	assert.ErrorContains(t, err, "no resource selected")
+func TestBuildSelectableItems(t *testing.T) {
+	key := func(item selectableItem) string {
+		return item.cluster.ClusterName + "/" +
+			item.service.ServiceName + "/" +
+			item.task.TaskArn + "/" +
+			item.container.ContainerName
+	}
 
-	// The resource has no data, so executeLogin must fail in
-	// createExecuteCommandInput before touching the ECS client (which is
-	// nil here and would fail with "ECS client is not initialized"
-	// instead).
-	err = executeLogin(&myecs.ECSResource{}, []myecs.ECSResource{{}})
-	assert.ErrorContains(t, err, "no cluster information")
+	svcTask := func(taskArn string, containerNames ...string) myecs.ECSTask {
+		task := myecs.ECSTask{TaskArn: taskArn}
+		for _, name := range containerNames {
+			task.Containers = append(task.Containers, myecs.ECSContainer{ContainerName: name})
+		}
+		return task
+	}
+
+	tests := []struct {
+		name     string
+		input    []myecs.ECSResource
+		expected []string
+	}{
+		{
+			name:     "no resources",
+			input:    []myecs.ECSResource{},
+			expected: nil,
+		},
+		{
+			name: "resource without clusters is skipped",
+			input: []myecs.ECSResource{
+				{Clusters: []myecs.ECSCluster{}},
+			},
+			expected: nil,
+		},
+		{
+			name: "service without tasks yields no items",
+			input: []myecs.ECSResource{
+				{
+					Clusters: []myecs.ECSCluster{
+						{
+							ClusterName: "cluster-1",
+							Services: []myecs.ECSService{
+								{ServiceName: "service-1"},
+							},
+						},
+					},
+				},
+			},
+			expected: nil,
+		},
+		{
+			name: "one cluster, service, task and container",
+			input: []myecs.ECSResource{
+				{
+					Clusters: []myecs.ECSCluster{
+						{
+							ClusterName: "cluster-1",
+							Services: []myecs.ECSService{
+								{
+									ServiceName: "service-1",
+									Tasks:       []myecs.ECSTask{svcTask("task-1", "container-1")},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: []string{"cluster-1/service-1/task-1/container-1"},
+		},
+		{
+			name: "multiple containers and services are flattened in order",
+			input: []myecs.ECSResource{
+				{
+					Clusters: []myecs.ECSCluster{
+						{
+							ClusterName: "cluster-1",
+							Services: []myecs.ECSService{
+								{
+									ServiceName: "service-1",
+									Tasks:       []myecs.ECSTask{svcTask("task-1", "container-a", "container-b")},
+								},
+								{
+									ServiceName: "service-2",
+									Tasks:       []myecs.ECSTask{svcTask("task-2", "container-c")},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: []string{
+				"cluster-1/service-1/task-1/container-a",
+				"cluster-1/service-1/task-1/container-b",
+				"cluster-1/service-2/task-2/container-c",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			items := buildSelectableItems(tt.input)
+			var got []string
+			for _, item := range items {
+				got = append(got, key(item))
+			}
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestExecuteLoginPropagatesError(t *testing.T) {
+	// A zero-value ECSResource has no initialized client, so
+	// ExecuteCommand fails and executeLogin must return the error.
+	item := selectableItem{
+		cluster:   myecs.ECSCluster{ClusterName: "cluster-1"},
+		service:   myecs.ECSService{ServiceName: "service-1"},
+		task:      myecs.ECSTask{TaskArn: "task-1"},
+		container: myecs.ECSContainer{ContainerName: "container-1"},
+	}
+
+	err := executeLogin(&myecs.ECSResource{}, item)
+
+	assert.Error(t, err)
 }

@@ -40,12 +40,12 @@ func runLoginCmd(cmd *cobra.Command, args []string) {
 		log.Fatal(err)
 	}
 
-	selectedResources, err := showResourcePicker(ecsResources)
+	selected, err := showResourcePicker(ecsResources)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if err := executeLogin(ecsClient, selectedResources); err != nil {
+	if err := executeLogin(ecsClient, selected); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -136,13 +136,16 @@ func extractItemsFromContainers(resourceIndex int, cluster myecs.ECSCluster, ser
 	return items
 }
 
-func showResourcePicker(ecsResources []myecs.ECSResource) ([]myecs.ECSResource, error) {
+func showResourcePicker(ecsResources []myecs.ECSResource) (selectableItem, error) {
 	items := buildSelectableItems(ecsResources)
 	if len(items) == 0 {
-		return nil, fmt.Errorf("no ECS resources found")
+		return selectableItem{}, fmt.Errorf("no ECS resources found")
 	}
 
-	selectedIndices, err := fuzzyfinder.FindMulti(
+	// Only one interactive session can be attached at a time, so use
+	// single selection instead of FindMulti. FindMulti results were
+	// otherwise silently truncated to the first entry.
+	itemIndex, err := fuzzyfinder.Find(
 		items,
 		func(i int) string {
 			return fmt.Sprintf("%s %s %s",
@@ -163,55 +166,15 @@ func showResourcePicker(ecsResources []myecs.ECSResource) ([]myecs.ECSResource, 
 			)
 		}),
 	)
-
 	if err != nil {
-		return nil, err
+		return selectableItem{}, err
 	}
 
-	// Create resources with selected items
-	var selectedResources []myecs.ECSResource
-	for _, idx := range selectedIndices {
-		selectedItem := items[idx]
-		// Create a new resource with the selected item data
-		resource := myecs.ECSResource{
-			Clusters: []myecs.ECSCluster{{
-				ClusterName: selectedItem.cluster.ClusterName,
-				ClusterArn:  selectedItem.cluster.ClusterArn,
-				Services: []myecs.ECSService{{
-					ServiceName: selectedItem.service.ServiceName,
-					ServiceArn:  selectedItem.service.ServiceArn,
-					ClusterName: selectedItem.cluster.ClusterName,
-					Tasks: []myecs.ECSTask{{
-						TaskArn:        selectedItem.task.TaskArn,
-						TaskDefinition: selectedItem.task.TaskDefinition,
-						ServiceName:    selectedItem.service.ServiceName,
-						ClusterName:    selectedItem.cluster.ClusterName,
-						Containers: []myecs.ECSContainer{{
-							ContainerName: selectedItem.container.ContainerName,
-							ContainerArn:  selectedItem.container.ContainerArn,
-							TaskArn:       selectedItem.task.TaskArn,
-							Image:         selectedItem.container.Image,
-							Status:        selectedItem.container.Status,
-						}},
-					}},
-				}},
-			}},
-		}
-		selectedResources = append(selectedResources, resource)
-	}
-
-	return selectedResources, nil
+	return items[itemIndex], nil
 }
 
-func executeLogin(ecsClient *myecs.ECSResource, selectedResources []myecs.ECSResource) error {
-	if len(selectedResources) == 0 {
-		return fmt.Errorf("no resource selected")
-	}
-	selectedResource := selectedResources[0]
-	commandInput, err := createExecuteCommandInput(selectedResource)
-	if err != nil {
-		return fmt.Errorf("failed to create execute command input: %w", err)
-	}
+func executeLogin(ecsClient *myecs.ECSResource, selected selectableItem) error {
+	commandInput := createExecuteCommandInput(selected)
 
 	log.WithFields(log.Fields{
 		"cluster":   *commandInput.Cluster,
@@ -223,20 +186,18 @@ func executeLogin(ecsClient *myecs.ECSResource, selectedResources []myecs.ECSRes
 	return ecsClient.ExecuteCommand(commandInput)
 }
 
-func createExecuteCommandInput(resource myecs.ECSResource) (ecs.ExecuteCommandInput, error) {
+func createExecuteCommandInput(item selectableItem) ecs.ExecuteCommandInput {
 	shell := getShell()
-	containerName, taskArn, err := extractTaskAndContainer(resource)
-	if err != nil {
-		return ecs.ExecuteCommandInput{}, fmt.Errorf("failed to extract task and container: %w", err)
-	}
-	clusterName := resource.Clusters[0].ClusterName
+	clusterName := item.cluster.ClusterName
+	containerName := item.container.ContainerName
+	taskArn := item.task.TaskArn
 
 	return ecs.ExecuteCommandInput{
 		Cluster:   aws.String(clusterName),
 		Container: aws.String(containerName),
 		Task:      aws.String(taskArn),
 		Command:   aws.String(shell),
-	}, nil
+	}
 }
 
 func getShell() string {
@@ -244,42 +205,6 @@ func getShell() string {
 		return loginSetFlags.shell
 	}
 	return "sh"
-}
-
-// extractTaskAndContainer returns the first task and its first container
-// from the selected resource. Missing data is an error here: the empty
-// strings would otherwise be sent to the ECS API (ExecuteCommand) instead
-// of failing before the call.
-func extractTaskAndContainer(resource myecs.ECSResource) (containerName, taskArn string, err error) {
-	if len(resource.Clusters) == 0 {
-		return "", "", fmt.Errorf("resource has no cluster information")
-	}
-
-	services := resource.Clusters[0].Services
-	if len(services) == 0 {
-		return "", "", fmt.Errorf("resource has no service information")
-	}
-
-	tasks := services[0].Tasks
-	if len(tasks) == 0 {
-		return "", "", fmt.Errorf("resource has no task information")
-	}
-
-	task := tasks[0]
-	if task.TaskArn == "" {
-		return "", "", fmt.Errorf("task has no task ARN")
-	}
-	taskArn = task.TaskArn
-
-	if len(task.Containers) == 0 {
-		return "", "", fmt.Errorf("task %s has no containers", task.TaskArn)
-	}
-	if task.Containers[0].ContainerName == "" {
-		return "", "", fmt.Errorf("task %s has no container name", task.TaskArn)
-	}
-	containerName = task.Containers[0].ContainerName
-
-	return containerName, taskArn, nil
 }
 
 func init() {

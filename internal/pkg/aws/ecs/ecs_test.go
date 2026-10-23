@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -358,6 +360,9 @@ func TestGetServiceResourcesAggregatesContainerFailures(t *testing.T) {
 }
 
 func TestExecuteCommandRequiresFields(t *testing.T) {
+	// putPluginOnPath lets the ExecuteCommand preflight pass so the tests
+	// exercise the input validation that follows it.
+	putPluginOnPath(t)
 	mockClient := new(MockECSClient)
 	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
 
@@ -434,37 +439,156 @@ func TestExecuteCommandClientNotInitialized(t *testing.T) {
 	assert.ErrorContains(t, err, "ECS client is not initialized")
 }
 
-type MockECSExecRunner struct {
-	mock.Mock
+// FakeExecRunner records the last command instead of running it, so tests
+// can inspect the session-manager-plugin invocation without executing
+// anything.
+type FakeExecRunner struct {
+	cmd *exec.Cmd
+	err error
 }
 
-func (m *MockECSExecRunner) RunCommand(cmd *exec.Cmd) error {
-	args := m.Called(cmd)
-	return args.Error(0)
+func (f *FakeExecRunner) RunCommand(cmd *exec.Cmd) error {
+	f.cmd = cmd
+	return f.err
 }
 
-func TestExecuteCommandEndToEnd(t *testing.T) {
+// putPluginOnPath creates a directory containing an executable named
+// session-manager-plugin and returns its absolute path (already set as
+// PATH by the caller via t.Setenv). The file is never executed.
+func putPluginOnPath(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	plugin := filepath.Join(dir, sessionManagerPluginName)
+	if err := os.WriteFile(plugin, []byte("#!/bin/sh\nexit 0\n"), 0o600); err != nil {
+		t.Fatalf("failed to create fake plugin: %v", err)
+	}
+	if err := os.Chmod(plugin, 0o755); err != nil {
+		t.Fatalf("failed to make fake plugin executable: %v", err)
+	}
+	t.Setenv("PATH", dir)
+}
+
+func TestExecuteCommandWithoutPluginReturnsInstallDocsError(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	mockClient := new(MockECSClient)
 	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
-	runner := new(MockECSExecRunner)
-	ecsResource.execRunner = runner
-
-	mockClient.On("ExecuteCommand", mock.Anything, &ecs.ExecuteCommandInput{
-		Cluster:     aws.String("test-cluster"),
-		Command:     aws.String("sh"),
-		Container:   aws.String("test-container"),
-		Interactive: true,
-		Task:        aws.String("test-task"),
-	}).Return(&ecs.ExecuteCommandOutput{
-		Session: &types.Session{},
-	}, nil)
-	runner.On("RunCommand", mock.Anything).Return(nil)
 
 	err := ecsResource.ExecuteCommand(ecs.ExecuteCommandInput{
 		Cluster:   aws.String("test-cluster"),
-		Command:   aws.String("sh"),
-		Container: aws.String("test-container"),
 		Task:      aws.String("test-task"),
+		Container: aws.String("test-container"),
 	})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), sessionManagerPluginName)
+	assert.Contains(t, err.Error(), ssmPluginInstallDocsURL)
+	// The session must not be created when the plugin is missing.
+	mockClient.AssertNotCalled(t, "ExecuteCommand", mock.Anything, mock.Anything)
+}
+
+func TestExecuteCommandRunsPluginWithResolvedEndpoint(t *testing.T) {
+	putPluginOnPath(t)
+	mockClient := new(MockECSClient)
+	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	runner := &FakeExecRunner{}
+	ecsResource.execRunner = runner
+
+	session := &types.Session{
+		SessionId:  aws.String("session-id"),
+		StreamUrl:  aws.String("https://stream.example"),
+		TokenValue: aws.String("secret-token"),
+	}
+	cluster, task, container := "test-cluster", "test-task", "test-container"
+	mockClient.On("ExecuteCommand", mock.Anything, mock.Anything).Return(&ecs.ExecuteCommandOutput{Session: session}, nil)
+
+	err := ecsResource.ExecuteCommand(ecs.ExecuteCommandInput{
+		Cluster:   aws.String(cluster),
+		Command:   aws.String("sh"),
+		Task:      aws.String(task),
+		Container: aws.String(container),
+	})
+
 	assert.NoError(t, err)
+	mockClient.AssertCalled(t, "ExecuteCommand", mock.Anything, mock.Anything)
+
+	cmd := runner.cmd
+	if assert.NotNil(t, cmd) && assert.Len(t, cmd.Args, 7) {
+		// Never assert or print the session JSON (Args[1]): it carries
+		// credentials.
+		assert.Equal(t, sessionManagerPluginName, cmd.Args[0])
+		assert.Equal(t, "ap-northeast-1", cmd.Args[2])
+		assert.Equal(t, "StartSession", cmd.Args[3])
+		assert.Equal(t, "", cmd.Args[4])
+		assert.Equal(t, `{"Target":"ecs:test-cluster_test-task_test-container"}`, cmd.Args[5])
+		assert.Equal(t, "https://ssm.ap-northeast-1.amazonaws.com", cmd.Args[6])
+	}
+}
+
+func TestResolveSSMEndpoint(t *testing.T) {
+	tests := []struct {
+		name     string
+		region   string
+		ssm      string
+		global   string
+		expected string
+	}{
+		{
+			name:     "commercial region derives amazonaws.com",
+			region:   "ap-northeast-1",
+			expected: "https://ssm.ap-northeast-1.amazonaws.com",
+		},
+		{
+			name:     "china region derives amazonaws.com.cn",
+			region:   "cn-north-1",
+			expected: "https://ssm.cn-north-1.amazonaws.com.cn",
+		},
+		{
+			name:     "china northwest region derives amazonaws.com.cn",
+			region:   "cn-northwest-1",
+			expected: "https://ssm.cn-northwest-1.amazonaws.com.cn",
+		},
+		{
+			name:     "service specific override wins",
+			region:   "us-east-1",
+			ssm:      "https://ssm-proxy.corp.internal",
+			expected: "https://ssm-proxy.corp.internal",
+		},
+		{
+			name:     "service specific override wins over global",
+			region:   "us-east-1",
+			ssm:      "https://ssm-proxy.corp.internal",
+			global:   "https://dev.example",
+			expected: "https://ssm-proxy.corp.internal",
+		},
+		{
+			name:     "global override used as fallback",
+			region:   "us-east-1",
+			global:   "https://dev.example",
+			expected: "https://dev.example",
+		},
+		{
+			name:     "empty override values fall back to derivation",
+			region:   "cn-north-1",
+			ssm:      "",
+			expected: "https://ssm.cn-north-1.amazonaws.com.cn",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(ssmEndpointURLEnvName, tt.ssm)
+			t.Setenv(globalEndpointURLEnvName, tt.global)
+
+			assert.Equal(t, tt.expected, resolveSSMEndpoint(tt.region))
+		})
+	}
+}
+
+func TestSSMHostSuffix(t *testing.T) {
+	assert.Equal(t, "amazonaws.com", ssmHostSuffix("us-east-1"))
+	assert.Equal(t, "amazonaws.com", ssmHostSuffix("us-gov-west-1"))
+	assert.Equal(t, "amazonaws.com", ssmHostSuffix("eu-west-1"))
+	assert.Equal(t, "amazonaws.com.cn", ssmHostSuffix("cn-north-1"))
+	assert.Equal(t, "amazonaws.com.cn", ssmHostSuffix("cn-northwest-1"))
+	assert.Equal(t, "amazonaws.com", ssmHostSuffix(""))
 }
