@@ -18,9 +18,8 @@ func FuzzParseClusterARNs(f *testing.F) {
 	f.Add("trailing/")
 	f.Add("")
 
-	e := &ECSResource{}
 	f.Fuzz(func(t *testing.T, arn string) {
-		clusters, err := e.parseClusterARNs([]string{arn})
+		names, err := parseClusterARNs([]string{arn})
 		if arn == "" {
 			if err == nil {
 				t.Fatalf("expected error for empty ARN")
@@ -30,33 +29,28 @@ func FuzzParseClusterARNs(f *testing.F) {
 		if err != nil {
 			t.Fatalf("unexpected error for %q: %v", arn, err)
 		}
-		if len(clusters) != 1 {
-			t.Fatalf("got %d clusters, want 1", len(clusters))
+		if len(names) != 1 {
+			t.Fatalf("got %d names, want 1", len(names))
 		}
-		c := clusters[0]
-		if c.ClusterArn != arn {
-			t.Fatalf("ClusterArn = %q, want %q", c.ClusterArn, arn)
+		name := names[0]
+		if strings.Contains(name, "/") {
+			t.Fatalf("name %q contains '/'", name)
 		}
-		if strings.Contains(c.ClusterName, "/") {
-			t.Fatalf("ClusterName %q contains '/'", c.ClusterName)
-		}
-		if !strings.HasSuffix(arn, c.ClusterName) {
-			t.Fatalf("ClusterName %q is not a suffix of %q", c.ClusterName, arn)
-		}
-		if c.Services == nil {
-			t.Fatalf("Services is nil")
+		if !strings.HasSuffix(arn, name) {
+			t.Fatalf("name %q is not a suffix of %q", name, arn)
 		}
 	})
 }
 
 func FuzzParseServiceARNs(f *testing.F) {
-	f.Add("arn:aws:ecs:ap-northeast-1:123456789012:service/my-cluster/my-service", "my-cluster")
-	f.Add("arn:aws:ecs:ap-northeast-1:123456789012:service/my-service", "")
-	f.Add("", "c")
+	f.Add("arn:aws:ecs:ap-northeast-1:123456789012:service/my-cluster/my-service")
+	f.Add("arn:aws:ecs:ap-northeast-1:123456789012:service/my-service")
+	f.Add("no-slash")
+	f.Add("trailing/")
+	f.Add("")
 
-	e := &ECSResource{}
-	f.Fuzz(func(t *testing.T, arn, cluster string) {
-		services, err := e.parseServiceARNs([]string{arn}, cluster)
+	f.Fuzz(func(t *testing.T, arn string) {
+		names, err := parseServiceARNs([]string{arn})
 		if arn == "" {
 			if err == nil {
 				t.Fatalf("expected error for empty ARN")
@@ -66,18 +60,15 @@ func FuzzParseServiceARNs(f *testing.F) {
 		if err != nil {
 			t.Fatalf("unexpected error for %q: %v", arn, err)
 		}
-		if len(services) != 1 {
-			t.Fatalf("got %d services, want 1", len(services))
+		if len(names) != 1 {
+			t.Fatalf("got %d names, want 1", len(names))
 		}
-		s := services[0]
-		if s.ServiceArn != arn || s.ClusterName != cluster {
-			t.Fatalf("fields not preserved: %+v", s)
+		name := names[0]
+		if strings.Contains(name, "/") {
+			t.Fatalf("name %q contains '/'", name)
 		}
-		if strings.Contains(s.ServiceName, "/") {
-			t.Fatalf("ServiceName %q contains '/'", s.ServiceName)
-		}
-		if !strings.HasSuffix(arn, s.ServiceName) {
-			t.Fatalf("ServiceName %q is not a suffix of %q", s.ServiceName, arn)
+		if !strings.HasSuffix(arn, name) {
+			t.Fatalf("name %q is not a suffix of %q", name, arn)
 		}
 	})
 }
@@ -90,9 +81,9 @@ func FuzzBuildSSMTargetJSON(f *testing.F) {
 	f.Add(`ecs:"quoted"_\back_slash`)
 	f.Add("ecs:\x00\n\t")
 
-	e := &ECSResource{}
+	c := &Client{}
 	f.Fuzz(func(t *testing.T, target string) {
-		b, err := e.buildSSMTargetJSON(target)
+		b, err := c.buildSSMTargetJSON(target)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

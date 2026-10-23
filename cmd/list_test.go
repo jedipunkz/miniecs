@@ -4,107 +4,146 @@ import (
 	"context"
 	"testing"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 
 	myecs "github.com/jedipunkz/miniecs/internal/pkg/aws/ecs"
 )
 
 func TestListECSTable(t *testing.T) {
-	listSetFlags.cluster = ""
-	cfg := aws.Config{}
-	ecsResource := myecs.NewECS(cfg, "region")
+	tests := []struct {
+		name        string
+		clusterFlag string
+		client      *fakeTargetLister
+		wantRows    [][]string
+		wantErr     string
+	}{
+		{
+			name:        "no cluster flag and no loaded clusters means no rows and no error",
+			clusterFlag: "",
+			client:      &fakeTargetLister{},
+			wantRows:    nil,
+		},
+		{
+			name:        "no cluster flag fetches every cluster",
+			clusterFlag: "",
+			client: &fakeTargetLister{
+				clusters: []string{"c1", "c2"},
+				services: map[string][]string{"c1": {"s1"}, "c2": {"s2"}},
+				targets: map[string][]myecs.Target{
+					"c1/s1": {{Cluster: "c1", Service: "s1", TaskDefinition: "arn:aws:ecs:ap-northeast-1:123456789012:task-definition/api:42", Container: "app"}},
+					"c2/s2": {{Cluster: "c2", Service: "s2", TaskDefinition: "web:1", Container: "web"}},
+				},
+			},
+			wantRows: [][]string{
+				{"c1", "s1", "api:42", "app"},
+				{"c2", "s2", "web:1", "web"},
+			},
+		},
+		{
+			name:        "cluster flag fetches only the named cluster",
+			clusterFlag: "c2",
+			client: &fakeTargetLister{
+				clusters: []string{"c1", "c2"},
+				services: map[string][]string{"c1": {"s1"}, "c2": {"s2"}},
+				targets: map[string][]myecs.Target{
+					"c1/s1": {{Cluster: "c1", Service: "s1", TaskDefinition: "api:42", Container: "app"}},
+					"c2/s2": {{Cluster: "c2", Service: "s2", TaskDefinition: "web:1", Container: "web"}},
+				},
+			},
+			wantRows: [][]string{
+				{"c2", "s2", "web:1", "web"},
+			},
+		},
+		{
+			name:        "unknown cluster returns an error",
+			clusterFlag: "missing",
+			client: &fakeTargetLister{
+				clusters: []string{"c1"},
+			},
+			wantErr: `cluster "missing" not found`,
+		},
+		{
+			name: "client error is returned",
+			client: &fakeTargetLister{
+				listErr: assert.AnError,
+			},
+			wantErr: assert.AnError.Error(),
+		},
+	}
 
-	// No cluster flag and no loaded clusters means no rows and no error.
-	ctx := context.Background()
-	rows, err := listECSTable(ctx, ecsResource)
-	assert.NoError(t, err)
-	assert.Empty(t, rows)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			listSetFlags.cluster = tt.clusterFlag
+			defer func() { listSetFlags.cluster = "" }()
+
+			rows, err := listECSTable(context.Background(), tt.client)
+
+			if tt.wantErr != "" {
+				assert.EqualError(t, err, tt.wantErr)
+				assert.Nil(t, rows)
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantRows, rows)
+		})
+	}
 }
 
 func TestBuildECSRows(t *testing.T) {
-	taskDefinitionArn := "arn:aws:ecs:ap-northeast-1:123456789012:task-definition/api:42"
-	resourceForTask := func(clusterName, serviceName, taskDefinition string, containerNames ...string) myecs.ECSResource {
-		containers := make([]myecs.ECSContainer, 0, len(containerNames))
-		for _, name := range containerNames {
-			containers = append(containers, myecs.ECSContainer{ContainerName: name})
-		}
-		return myecs.ECSResource{
-			Clusters: []myecs.ECSCluster{{
-				ClusterName: clusterName,
-				Services: []myecs.ECSService{{
-					ServiceName: serviceName,
-					Tasks: []myecs.ECSTask{{
-						TaskDefinition: taskDefinition,
-						Containers:     containers,
-					}},
-				}},
-			}},
+	target := func(cluster, service, taskDefinition, container string) myecs.Target {
+		return myecs.Target{
+			Cluster:        cluster,
+			Service:        service,
+			TaskArn:        "arn:aws:ecs:ap-northeast-1:123456789012:task/prod/task-1",
+			TaskDefinition: taskDefinition,
+			Container:      container,
 		}
 	}
 
 	tests := []struct {
-		name      string
-		resources []myecs.ECSResource
-		wantRows  [][]string
+		name     string
+		targets  []myecs.Target
+		wantRows [][]string
 	}{
 		{
-			name: "full row per task with hashed task definition",
-			resources: []myecs.ECSResource{
-				resourceForTask("prod", "api", taskDefinitionArn, "app"),
+			name: "full row per target with shortened task definition",
+			targets: []myecs.Target{
+				target("prod", "api", "arn:aws:ecs:ap-northeast-1:123456789012:task-definition/api:42", "app"),
 			},
 			wantRows: [][]string{
 				{"prod", "api", "api:42", "app"},
 			},
 		},
 		{
-			name: "multi-container task joined into one row",
-			resources: []myecs.ECSResource{
-				resourceForTask("prod", "web", taskDefinitionArn, "app", "sidecar"),
+			name: "one row per container target",
+			targets: []myecs.Target{
+				target("prod", "web", "arn:aws:ecs:ap-northeast-1:123456789012:task-definition/api:42", "app"),
+				target("prod", "web", "arn:aws:ecs:ap-northeast-1:123456789012:task-definition/api:42", "sidecar"),
 			},
 			wantRows: [][]string{
-				{"prod", "web", "api:42", "app, sidecar"},
+				{"prod", "web", "api:42", "app"},
+				{"prod", "web", "api:42", "sidecar"},
 			},
 		},
 		{
-			name: "one row per loaded resource",
-			resources: []myecs.ECSResource{
-				resourceForTask("prod", "api", taskDefinitionArn, "app"),
-				resourceForTask("dev", "web", "arn:aws:ecs:us-east-1:123456789012:task-definition/web:1", "nginx"),
+			name: "already abbreviated task definition passes through",
+			targets: []myecs.Target{
+				target("dev", "web", "web:1", "nginx"),
 			},
 			wantRows: [][]string{
-				{"prod", "api", "api:42", "app"},
 				{"dev", "web", "web:1", "nginx"},
 			},
 		},
 		{
-			name: "resource without cluster is skipped",
-			resources: []myecs.ECSResource{
-				{},
-			},
-			wantRows: nil,
-		},
-		{
-			name: "resource without service or task is skipped",
-			resources: []myecs.ECSResource{
-				{
-					Clusters: []myecs.ECSCluster{
-						{},
-						{ClusterName: "prod"},
-					},
-				},
-			},
-			wantRows: nil,
-		},
-		{
-			name:     "no resources yields no rows",
+			name:     "no targets yields no rows",
 			wantRows: nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.wantRows, buildECSRows(tt.resources))
+			assert.Equal(t, tt.wantRows, buildECSRows(tt.targets))
 		})
 	}
 }
