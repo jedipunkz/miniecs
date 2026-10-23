@@ -413,6 +413,7 @@ func TestGetServiceResourcesPropagatesDescribeTaskFailure(t *testing.T) {
 	listInput := &ecs.ListTasksInput{
 		Cluster:     aws.String(clusterName),
 		ServiceName: aws.String(serviceName),
+		MaxResults:  aws.Int32(100),
 	}
 
 	// GetServiceResources lists tasks twice: once through GetTasks and
@@ -462,6 +463,7 @@ func TestGetServiceResourcesAggregatesContainerFailures(t *testing.T) {
 	listInput := &ecs.ListTasksInput{
 		Cluster:     aws.String(clusterName),
 		ServiceName: aws.String(serviceName),
+		MaxResults:  aws.Int32(100),
 	}
 
 	// describeTask issues one DescribeTasks call per task ARN, and
