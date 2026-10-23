@@ -1,0 +1,37 @@
+version: "2"
+
+linters:
+  enable:
+    - depguard
+    - errorlint
+    - gosec
+  settings:
+    gosec:
+      excludes:
+        # G204 flags every exec.Command with non-constant args. The only
+        # subprocess is session-manager-plugin, a fixed binary given an
+        # argument list (no shell), so the finding is a false positive.
+        # The no-shell rule itself is enforced in CLAUDE.md and the PR
+        # template instead of with //nolint comments.
+        - G204
+    depguard:
+      rules:
+        # internal/ is the AWS data layer. It must not depend on the CLI
+        # layer or on terminal UI libraries; keep those in cmd/.
+        internal-no-cli:
+          files:
+            - "**/internal/**"
+          deny:
+            - pkg: github.com/jedipunkz/miniecs/cmd
+              desc: internal/ must not import cmd/; only main.go imports cmd
+            - pkg: github.com/spf13/cobra
+              desc: CLI flags and commands belong in cmd/, not internal/
+            - pkg: github.com/ktr0731/go-fuzzyfinder
+              desc: interactive UI belongs in cmd/, not internal/
+            - pkg: github.com/olekukonko/tablewriter
+              desc: table output belongs in cmd/, not internal/
+        # Use the AWS SDK v2 only. v1 is in maintenance mode.
+        aws-sdk-v2-only:
+          deny:
+            - pkg: github.com/aws/aws-sdk-go/
+              desc: use github.com/aws/aws-sdk-go-v2 instead of the v1 SDK
