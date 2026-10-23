@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	myecs "github.com/jedipunkz/miniecs/internal/pkg/aws/ecs"
@@ -221,10 +222,10 @@ func createExecuteCommandInput(item selectableItem) ecs.ExecuteCommandInput {
 	taskArn := item.task.TaskArn
 
 	return ecs.ExecuteCommandInput{
-		Cluster:   &clusterName,
-		Container: &containerName,
-		Task:      &taskArn,
-		Command:   &shell,
+		Cluster:   aws.String(clusterName),
+		Container: aws.String(containerName),
+		Task:      aws.String(taskArn),
+		Command:   aws.String(shell),
 	}
 }
 

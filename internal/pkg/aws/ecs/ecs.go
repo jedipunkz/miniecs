@@ -3,6 +3,7 @@ package ecs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,8 +12,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // sessionManagerPluginName is the fixed binary executed for ECS Exec
@@ -123,7 +122,10 @@ func (e *ECSResource) ExecuteCommand(input ecs.ExecuteCommandInput) error {
 	}
 
 	ctx := context.TODO()
-	preparedInput := e.buildExecuteCommandInput(input)
+	preparedInput, err := e.buildExecuteCommandInput(input)
+	if err != nil {
+		return fmt.Errorf("failed to build execute command input: %w", err)
+	}
 
 	execCommandOutput, err := e.client.ExecuteCommand(ctx, &preparedInput)
 	if err != nil {
@@ -135,7 +137,7 @@ func (e *ECSResource) ExecuteCommand(input ecs.ExecuteCommandInput) error {
 		return fmt.Errorf("failed to marshal session info: %w", err)
 	}
 
-	target := fmt.Sprintf("ecs:%s_%s_%s", *input.Cluster, *input.Task, *input.Container)
+	target := fmt.Sprintf("ecs:%s_%s_%s", *preparedInput.Cluster, *preparedInput.Task, *preparedInput.Container)
 	targetJSON, err := e.buildSSMTargetJSON(target)
 	if err != nil {
 		return fmt.Errorf("failed to create target JSON: %w", err)
@@ -145,14 +147,38 @@ func (e *ECSResource) ExecuteCommand(input ecs.ExecuteCommandInput) error {
 	return e.execRunner.RunCommand(cmd)
 }
 
-func (e *ECSResource) buildExecuteCommandInput(input ecs.ExecuteCommandInput) ecs.ExecuteCommandInput {
+// buildExecuteCommandInput validates the required fields and returns a
+// rebuilt input. Nil or empty fields would either panic when dereferenced
+// or be sent to the ECS API as empty values, so they are rejected here
+// before any API call.
+func (e *ECSResource) buildExecuteCommandInput(input ecs.ExecuteCommandInput) (ecs.ExecuteCommandInput, error) {
+	if err := requireString(input.Cluster, "cluster"); err != nil {
+		return ecs.ExecuteCommandInput{}, err
+	}
+	if err := requireString(input.Command, "command"); err != nil {
+		return ecs.ExecuteCommandInput{}, err
+	}
+	if err := requireString(input.Container, "container"); err != nil {
+		return ecs.ExecuteCommandInput{}, err
+	}
+	if err := requireString(input.Task, "task"); err != nil {
+		return ecs.ExecuteCommandInput{}, err
+	}
+
 	return ecs.ExecuteCommandInput{
 		Cluster:     aws.String(*input.Cluster),
 		Command:     aws.String(*input.Command),
 		Container:   aws.String(*input.Container),
 		Interactive: true,
 		Task:        aws.String(*input.Task),
+	}, nil
+}
+
+func requireString(value *string, name string) error {
+	if value == nil || *value == "" {
+		return fmt.Errorf("%s is required", name)
 	}
+	return nil
 }
 
 func (e *ECSResource) buildSSMTargetJSON(target string) ([]byte, error) {
@@ -353,19 +379,25 @@ func (e *ECSResource) GetTasks(ctx context.Context, cluster, service string) err
 	return nil
 }
 
+// describeTasks describes every listed task and keeps the ones that
+// succeed. A task that fails to describe is skipped so the listing stays
+// useful, but the failure is not swallowed: it is aggregated with
+// errors.Join and returned, so callers treat the run as failed with the
+// real causes instead of showing a silently incomplete list.
 func (e *ECSResource) describeTasks(ctx context.Context, cluster string, taskArns []string) ([]ECSTask, error) {
 	var tasks []ECSTask
+	var taskErrs []error
 	for _, taskArn := range taskArns {
 		task, err := e.describeTask(ctx, cluster, taskArn)
 		if err != nil {
-			log.Printf("Failed to describe task %s: %v", taskArn, err)
+			taskErrs = append(taskErrs, fmt.Errorf("task %s: %w", taskArn, err))
 			continue
 		}
 		if task != nil {
 			tasks = append(tasks, *task)
 		}
 	}
-	return tasks, nil
+	return tasks, errors.Join(taskErrs...)
 }
 
 func (e *ECSResource) describeTask(ctx context.Context, cluster, taskArn string) (*ECSTask, error) {
@@ -408,6 +440,10 @@ func (e *ECSResource) describeTask(ctx context.Context, cluster, taskArn string)
 }
 
 func (e *ECSResource) ListContainersForTask(ctx context.Context, taskDefinition string) ([]ECSContainer, error) {
+	if taskDefinition == "" {
+		return nil, fmt.Errorf("task definition is required")
+	}
+
 	input := &ecs.DescribeTaskDefinitionInput{
 		TaskDefinition: aws.String(taskDefinition),
 	}
@@ -415,6 +451,10 @@ func (e *ECSResource) ListContainersForTask(ctx context.Context, taskDefinition 
 	result, err := e.client.DescribeTaskDefinition(ctx, input)
 	if err != nil {
 		return nil, fmt.Errorf("failed to describe task definition: %w", err)
+	}
+
+	if result.TaskDefinition == nil {
+		return nil, fmt.Errorf("no task definition returned for: %s", taskDefinition)
 	}
 
 	containers, err := e.parseContainerDefinitions(result.TaskDefinition.ContainerDefinitions, "")
@@ -520,11 +560,16 @@ func (e *ECSResource) GetServiceResources(ctx context.Context, cluster ECSCluste
 		return resources, nil
 	}
 
-	// For each task, get containers and create a complete resource
+	// For each task, get containers and create a complete resource. A
+	// task whose task definition cannot be described is skipped, but the
+	// failures are aggregated with errors.Join and returned (never logged
+	// and hidden): a partial list would silently omit tasks the user
+	// cannot see, so any per-task failure is fatal for this service.
+	var containerErrs []error
 	for _, task := range tasks {
 		containers, err := e.ListContainersForTask(ctx, task.TaskDefinition)
 		if err != nil {
-			log.Printf("Failed to list containers for task %s: %v", task.TaskArn, err)
+			containerErrs = append(containerErrs, fmt.Errorf("failed to list containers for task %s: %w", task.TaskArn, err))
 			continue
 		}
 
@@ -545,6 +590,10 @@ func (e *ECSResource) GetServiceResources(ctx context.Context, cluster ECSCluste
 			}},
 		}
 		resources = append(resources, resource)
+	}
+
+	if err := errors.Join(containerErrs...); err != nil {
+		return nil, err
 	}
 
 	return resources, nil
