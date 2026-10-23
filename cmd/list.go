@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"os"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	myecs "github.com/jedipunkz/miniecs/internal/pkg/aws/ecs"
@@ -62,48 +63,75 @@ func runlistCmd(cmd *cobra.Command, args []string) {
 }
 
 func listECSTable(ctx context.Context, e *myecs.ECSResource) ([][]string, error) {
-	var ecsTable [][]string
+	var resources []myecs.ECSResource
 
 	if listSetFlags.cluster == "" {
 		for _, cluster := range e.Clusters {
-			resources, err := e.GetClusterResources(ctx, cluster)
+			loaded, err := e.GetClusterResources(ctx, cluster)
 			if err != nil {
 				return nil, err
 			}
-
-			for _, resource := range resources {
-				if len(resource.Clusters) > 0 {
-					clusterName := resource.Clusters[0].ClusterName
-					ecsTable = append(ecsTable, []string{
-						clusterName,
-						"",
-						"",
-						"",
-					})
-				}
-			}
+			resources = append(resources, loaded...)
 		}
 	} else {
 		cluster := myecs.ECSCluster{ClusterName: listSetFlags.cluster}
-		resources, err := e.GetClusterResources(ctx, cluster)
+		loaded, err := e.GetClusterResources(ctx, cluster)
 		if err != nil {
 			return nil, err
 		}
-
-		for _, resource := range resources {
-			if len(resource.Clusters) > 0 {
-				clusterName := resource.Clusters[0].ClusterName
-				ecsTable = append(ecsTable, []string{
-					clusterName,
-					"",
-					"",
-					"",
-				})
-			}
-		}
+		resources = loaded
 	}
 
-	return ecsTable, nil
+	return buildECSRows(resources), nil
+}
+
+// buildECSRows renders the table rows for the resources loaded by
+// GetClusterResources. Each loaded resource describes exactly one task, so
+// the row granularity is one row per task: the container column lists all
+// container names of that task, joined with ", ". Resources that are
+// missing cluster, service or task data are skipped.
+func buildECSRows(resources []myecs.ECSResource) [][]string {
+	var rows [][]string
+	for _, resource := range resources {
+		if len(resource.Clusters) == 0 ||
+			len(resource.Clusters[0].Services) == 0 ||
+			len(resource.Clusters[0].Services[0].Tasks) == 0 {
+			continue
+		}
+		cluster := resource.Clusters[0]
+		service := cluster.Services[0]
+		task := service.Tasks[0]
+
+		containers := make([]string, 0, len(task.Containers))
+		for _, container := range task.Containers {
+			containers = append(containers, container.ContainerName)
+		}
+
+		rows = append(rows, []string{
+			cluster.ClusterName,
+			service.ServiceName,
+			shortenTaskDefArn(task.TaskDefinition),
+			strings.Join(containers, ", "),
+		})
+	}
+	return rows
+}
+
+const taskDefinitionARNMarker = ":task-definition/"
+
+// shortenTaskDefArn renders a task definition as family:revision instead of
+// the full ARN. Values without the task-definition ARN marker (for example
+// an already abbreviated "family:revision") are returned unchanged.
+func shortenTaskDefArn(taskDefinition string) string {
+	index := strings.Index(taskDefinition, taskDefinitionARNMarker)
+	if index < 0 {
+		return taskDefinition
+	}
+	familyRevision := taskDefinition[index+len(taskDefinitionARNMarker):]
+	if familyRevision == "" {
+		return taskDefinition
+	}
+	return familyRevision
 }
 
 func init() {
