@@ -68,10 +68,10 @@ func (f *fakeTargetLister) ListServices(ctx context.Context, cluster string) ([]
 }
 
 func (f *fakeTargetLister) ListTargets(ctx context.Context, cluster, service string) ([]myecs.Target, error) {
-	if f.targetDelay != nil {
-		f.targetDelay(cluster, service)
-	}
-
+	// The call counts as in-flight for its whole body, including the
+	// delay, so concurrent calls that are sleeping together are all
+	// counted at the same time. The delay runs outside mu so sleeping
+	// goroutines do not serialize through the lock.
 	f.mu.Lock()
 	f.gotTargetCalls = append(f.gotTargetCalls, [2]string{cluster, service})
 	f.inFlight++
@@ -85,6 +85,10 @@ func (f *fakeTargetLister) ListTargets(ctx context.Context, cluster, service str
 		f.inFlight--
 		f.mu.Unlock()
 	}()
+
+	if f.targetDelay != nil {
+		f.targetDelay(cluster, service)
+	}
 
 	if err, ok := f.targetErrByService[cluster+"/"+service]; ok {
 		return nil, err
@@ -383,10 +387,10 @@ func TestFetchTargetsBoundedConcurrency(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Len(t, got, serviceCount)
-	// The calls overlapped (more than one ran at the same time) but never
-	// exceeded the limit.
-	assert.Greater(t, client.maxConcurrentTargets(), 1)
-	assert.LessOrEqual(t, client.maxConcurrentTargets(), maxConcurrentFetches)
+	// The first allowed fan-out is admitted before the first call
+	// returns (each sleeps 2 ms), so exactly maxConcurrentFetches calls
+	// ran at the same time, and never more.
+	assert.Equal(t, maxConcurrentFetches, client.maxConcurrentTargets())
 }
 
 // errOrNil turns an expected error message into an error, or nil for "".
