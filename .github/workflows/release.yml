@@ -20,7 +20,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Sources
-        uses: actions/checkout@master
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Bump-up Semantic Version
         uses: kyoh86/git-vertag-action@v1.1
