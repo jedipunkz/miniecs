@@ -1,56 +1,91 @@
 name: Go-CI
 
-on: [push]
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
 
 jobs:
-  setup:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Set Up
-        uses: actions/setup-go@v7
-        with:
-          go-version: ^1.26.10
-        id: go
-
-      - name: Check Out
-        uses: actions/checkout@v7
-
-      - name: Cache
-        uses: actions/cache@v6
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
-  build:
-    needs: setup
-    runs-on: ubuntu-latest
+  build-test:
+    name: Build and Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check Out
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set Up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
 
       - name: Build
         run: go build ./...
 
-  test:
-    needs: setup
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out
-        uses: actions/checkout@v7
-
+      # -race also runs the fuzz seed corpora as regular tests.
       - name: Test
-        run: go test ./... -v
+        run: go test -race ./...
 
   lint:
-    needs: setup
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - name: Check Out
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set Up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
 
       - name: Golangci-Lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: latest
+          version: v2.15.0
+
+  coverage:
+    name: Coverage Gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set Up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # Base and head are measured on the same runner so the numbers are
+      # comparable. Fail if total coverage drops by more than TOLERANCE
+      # percentage points.
+      - name: Compare Coverage With Base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          TOLERANCE: "0.5"
+        run: |
+          total() {
+            (cd "$1" && go test -coverprofile=coverage.out ./... >/dev/null &&
+              go tool cover -func=coverage.out | awk '/^total:/ { sub("%", "", $3); print $3 }')
+          }
+          head_cov=$(total .)
+          git worktree add ../base "$BASE_SHA"
+          base_cov=$(total ../base)
+          echo "base: ${base_cov}% head: ${head_cov}% tolerance: ${TOLERANCE}pp"
+          if awk -v b="$base_cov" -v h="$head_cov" -v t="$TOLERANCE" 'BEGIN { exit !(h < b - t) }'; then
+            echo "::error::Total coverage dropped from ${base_cov}% to ${head_cov}% (tolerance ${TOLERANCE}pp)"
+            exit 1
+          fi

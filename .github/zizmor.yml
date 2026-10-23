@@ -1,0 +1,7 @@
+rules:
+  # Require full commit SHAs for every action, including first-party ones,
+  # so a tag cannot be moved to new code under us.
+  unpinned-uses:
+    config:
+      policies:
+        "*": hash-pin
