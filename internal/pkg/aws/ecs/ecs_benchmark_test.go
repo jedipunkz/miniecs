@@ -102,10 +102,9 @@ func BenchmarkParseClusterARNs(b *testing.B) {
 	for i := range arns {
 		arns[i] = fmt.Sprintf("arn:aws:ecs:%s:%s:cluster/cluster-%d", benchRegion, benchAccountID, i)
 	}
-	e := &ECSResource{}
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := e.parseClusterARNs(arns); err != nil {
+		if _, err := parseClusterARNs(arns); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -116,10 +115,9 @@ func BenchmarkParseServiceARNs(b *testing.B) {
 	for i := range arns {
 		arns[i] = fmt.Sprintf("arn:aws:ecs:%s:%s:service/cluster-0/service-%d", benchRegion, benchAccountID, i)
 	}
-	e := &ECSResource{}
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := e.parseServiceARNs(arns, "cluster-0"); err != nil {
+		if _, err := parseServiceARNs(arns); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -133,40 +131,36 @@ func BenchmarkParseContainerDefinitions(b *testing.B) {
 			Image: aws.String("nginx:latest"),
 		}
 	}
-	e := &ECSResource{}
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := e.parseContainerDefinitions(definitions, ""); err != nil {
+		if _, err := parseContainerDefinitions(definitions); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-func BenchmarkGetClusterResources(b *testing.B) {
+// BenchmarkListTargets measures the full resource-loading path: from the
+// listed services of every cluster down to the flat per-container
+// targets.
+func BenchmarkListTargets(b *testing.B) {
 	ctx := context.Background()
-	e := newECSForTesting(newBenchClient(), benchRegion)
-	if err := e.ListClusters(ctx); err != nil {
+	client := newClientForTesting(newBenchClient(), benchRegion)
+	clusters, err := client.ListClusters(ctx)
+	if err != nil {
 		b.Fatal(err)
 	}
-	clusters := e.Clusters
 	b.ReportAllocs()
 	for b.Loop() {
 		for _, cluster := range clusters {
-			if _, err := e.GetClusterResources(ctx, cluster); err != nil {
+			services, err := client.ListServices(ctx, cluster)
+			if err != nil {
 				b.Fatal(err)
 			}
-		}
-	}
-}
-
-func BenchmarkLoadAllResources(b *testing.B) {
-	ctx := context.Background()
-	client := newBenchClient()
-	b.ReportAllocs()
-	for b.Loop() {
-		e := newECSForTesting(client, benchRegion)
-		if err := e.LoadAllResources(ctx); err != nil {
-			b.Fatal(err)
+			for _, service := range services {
+				if _, err := client.ListTargets(ctx, cluster, service); err != nil {
+					b.Fatal(err)
+				}
+			}
 		}
 	}
 }

@@ -26,22 +26,17 @@ var listCmd = &cobra.Command{
 func runlistCmd(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
 
-	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(listSetFlags.region))
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(listSetFlags.region))
 	if err != nil {
 		log.Fatalf("unable to load SDK config, %v", err)
 	}
 
-	e := myecs.NewECS(cfg, listSetFlags.region)
-	if e == nil {
+	ecsClient := myecs.NewClient(cfg, listSetFlags.region)
+	if ecsClient == nil {
 		log.Fatal("failed to initialize ECS client")
 	}
 
-	err = e.ListClusters(ctx)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	ecsTable, err := listECSTable(ctx, e)
+	rows, err := listECSTable(ctx, ecsClient)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -52,7 +47,7 @@ func runlistCmd(cmd *cobra.Command, args []string) {
 			"Service",
 			"Task Definition",
 			"Container"}))
-	for _, row := range ecsTable {
+	for _, row := range rows {
 		if err := table.Append(row); err != nil {
 			log.Fatal(err)
 		}
@@ -62,56 +57,28 @@ func runlistCmd(cmd *cobra.Command, args []string) {
 	}
 }
 
-func listECSTable(ctx context.Context, e *myecs.ECSResource) ([][]string, error) {
-	var resources []myecs.ECSResource
-
-	if listSetFlags.cluster == "" {
-		for _, cluster := range e.Clusters {
-			loaded, err := e.GetClusterResources(ctx, cluster)
-			if err != nil {
-				return nil, err
-			}
-			resources = append(resources, loaded...)
-		}
-	} else {
-		cluster := myecs.ECSCluster{ClusterName: listSetFlags.cluster}
-		loaded, err := e.GetClusterResources(ctx, cluster)
-		if err != nil {
-			return nil, err
-		}
-		resources = loaded
+// listECSTable fetches the flat targets of the selected clusters and
+// renders the table rows for them.
+func listECSTable(ctx context.Context, ecsClient ecsTargetLister) ([][]string, error) {
+	targets, err := fetchTargets(ctx, ecsClient, listSetFlags.cluster)
+	if err != nil {
+		return nil, err
 	}
 
-	return buildECSRows(resources), nil
+	return buildECSRows(targets), nil
 }
 
-// buildECSRows renders the table rows for the resources loaded by
-// GetClusterResources. Each loaded resource describes exactly one task, so
-// the row granularity is one row per task: the container column lists all
-// container names of that task, joined with ", ". Resources that are
-// missing cluster, service or task data are skipped.
-func buildECSRows(resources []myecs.ECSResource) [][]string {
+// buildECSRows renders the table rows for the flat targets. One target
+// describes exactly one container, so the row granularity is one row per
+// container target.
+func buildECSRows(targets []myecs.Target) [][]string {
 	var rows [][]string
-	for _, resource := range resources {
-		if len(resource.Clusters) == 0 ||
-			len(resource.Clusters[0].Services) == 0 ||
-			len(resource.Clusters[0].Services[0].Tasks) == 0 {
-			continue
-		}
-		cluster := resource.Clusters[0]
-		service := cluster.Services[0]
-		task := service.Tasks[0]
-
-		containers := make([]string, 0, len(task.Containers))
-		for _, container := range task.Containers {
-			containers = append(containers, container.ContainerName)
-		}
-
+	for _, target := range targets {
 		rows = append(rows, []string{
-			cluster.ClusterName,
-			service.ServiceName,
-			shortenTaskDefArn(task.TaskDefinition),
-			strings.Join(containers, ", "),
+			target.Cluster,
+			target.Service,
+			shortenTaskDefArn(target.TaskDefinition),
+			target.Container,
 		})
 	}
 	return rows

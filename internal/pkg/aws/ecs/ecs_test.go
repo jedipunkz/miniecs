@@ -55,37 +55,34 @@ func (m *MockECSClient) ExecuteCommand(ctx context.Context, params *ecs.ExecuteC
 	return args.Get(0).(*ecs.ExecuteCommandOutput), args.Error(1)
 }
 
-func TestNewECS(t *testing.T) {
+func TestNewClient(t *testing.T) {
 	cfg := aws.Config{}
 	region := "ap-northeast-1"
 
-	ecsResource := NewECS(cfg, region)
+	client := NewClient(cfg, region)
 
-	assert.NotNil(t, ecsResource)
-	assert.Equal(t, region, ecsResource.Region)
-	assert.Empty(t, ecsResource.Clusters)
-	assert.NotNil(t, ecsResource.client)
-	assert.NotNil(t, ecsResource.execRunner)
+	assert.NotNil(t, client)
+	assert.Equal(t, region, client.Region)
+	assert.NotNil(t, client.client)
+	assert.NotNil(t, client.execRunner)
 }
 
 func TestListClusters(t *testing.T) {
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 
 	mockClient.On("ListClusters", mock.Anything, &ecs.ListClustersInput{MaxResults: aws.Int32(100)}).Return(&ecs.ListClustersOutput{
 		ClusterArns: []string{"arn:aws:ecs:ap-northeast-1:123456789012:cluster/cluster1", "arn:aws:ecs:ap-northeast-1:123456789012:cluster/cluster2"},
 	}, nil)
 
-	err := ecsResource.ListClusters(context.Background())
+	names, err := client.ListClusters(context.Background())
 	assert.NoError(t, err)
-	assert.Len(t, ecsResource.Clusters, 2)
-	assert.Equal(t, "cluster1", ecsResource.Clusters[0].ClusterName)
-	assert.Equal(t, "cluster2", ecsResource.Clusters[1].ClusterName)
+	assert.Equal(t, []string{"cluster1", "cluster2"}, names)
 }
 
 func TestListClustersPaginated(t *testing.T) {
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 
 	mockClient.On("ListClusters", mock.Anything, &ecs.ListClustersInput{MaxResults: aws.Int32(100)}).Return(&ecs.ListClustersOutput{
 		ClusterArns: []string{"arn:aws:ecs:ap-northeast-1:123456789012:cluster/cluster1", "arn:aws:ecs:ap-northeast-1:123456789012:cluster/cluster2"},
@@ -98,22 +95,19 @@ func TestListClustersPaginated(t *testing.T) {
 		ClusterArns: []string{"arn:aws:ecs:ap-northeast-1:123456789012:cluster/cluster3"},
 	}, nil)
 
-	err := ecsResource.ListClusters(context.Background())
+	names, err := client.ListClusters(context.Background())
 	assert.NoError(t, err)
-	assert.Len(t, ecsResource.Clusters, 3)
-	assert.Equal(t, "cluster1", ecsResource.Clusters[0].ClusterName)
-	assert.Equal(t, "cluster2", ecsResource.Clusters[1].ClusterName)
-	assert.Equal(t, "cluster3", ecsResource.Clusters[2].ClusterName)
+	assert.Equal(t, []string{"cluster1", "cluster2", "cluster3"}, names)
 }
 
 func TestListClustersListError(t *testing.T) {
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 
 	mockClient.On("ListClusters", mock.Anything, &ecs.ListClustersInput{MaxResults: aws.Int32(100)}).Return(
 		(*ecs.ListClustersOutput)(nil), errors.New("access denied"))
 
-	err := ecsResource.ListClusters(context.Background())
+	_, err := client.ListClusters(context.Background())
 	assert.Error(t, err)
 	assert.ErrorContains(t, err, "failed to list clusters")
 	assert.ErrorContains(t, err, "access denied")
@@ -121,7 +115,7 @@ func TestListClustersListError(t *testing.T) {
 
 func TestListServices(t *testing.T) {
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 
 	clusterName := "test-cluster"
 	mockClient.On("ListServices", mock.Anything, &ecs.ListServicesInput{
@@ -131,17 +125,14 @@ func TestListServices(t *testing.T) {
 		ServiceArns: []string{"arn:aws:ecs:ap-northeast-1:123456789012:service/test-cluster/service1", "arn:aws:ecs:ap-northeast-1:123456789012:service/test-cluster/service2"},
 	}, nil)
 
-	// Initialize clusters first
-	ecsResource.Clusters = []ECSCluster{{ClusterName: clusterName}}
-
-	err := ecsResource.ListServices(context.Background(), clusterName)
+	names, err := client.ListServices(context.Background(), clusterName)
 	assert.NoError(t, err)
-	assert.Len(t, ecsResource.Clusters, 1)
+	assert.Equal(t, []string{"service1", "service2"}, names)
 }
 
 func TestListServicesPaginated(t *testing.T) {
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 
 	clusterName := "test-cluster"
 	mockClient.On("ListServices", mock.Anything, &ecs.ListServicesInput{
@@ -162,20 +153,14 @@ func TestListServicesPaginated(t *testing.T) {
 		ServiceArns: []string{"arn:aws:ecs:ap-northeast-1:123456789012:service/test-cluster/service3"},
 	}, nil)
 
-	// Initialize clusters first
-	ecsResource.Clusters = []ECSCluster{{ClusterName: clusterName}}
-
-	err := ecsResource.ListServices(context.Background(), clusterName)
+	names, err := client.ListServices(context.Background(), clusterName)
 	assert.NoError(t, err)
-	assert.Len(t, ecsResource.Clusters, 1)
-	assert.Len(t, ecsResource.Clusters[0].Services, 3)
-	assert.Equal(t, "service1", ecsResource.Clusters[0].Services[0].ServiceName)
-	assert.Equal(t, "service3", ecsResource.Clusters[0].Services[2].ServiceName)
+	assert.Equal(t, []string{"service1", "service2", "service3"}, names)
 }
 
 func TestListServicesListError(t *testing.T) {
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 
 	clusterName := "test-cluster"
 	mockClient.On("ListServices", mock.Anything, &ecs.ListServicesInput{
@@ -183,15 +168,15 @@ func TestListServicesListError(t *testing.T) {
 		MaxResults: aws.Int32(100),
 	}).Return((*ecs.ListServicesOutput)(nil), errors.New("access denied"))
 
-	err := ecsResource.ListServices(context.Background(), clusterName)
+	_, err := client.ListServices(context.Background(), clusterName)
 	assert.Error(t, err)
 	assert.ErrorContains(t, err, "failed to list services")
 	assert.ErrorContains(t, err, "access denied")
 }
 
-func TestGetTasks(t *testing.T) {
+func TestListTargets(t *testing.T) {
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 
 	clusterName := "test-cluster"
 	serviceName := "test-service"
@@ -214,17 +199,37 @@ func TestGetTasks(t *testing.T) {
 			{
 				TaskArn:           aws.String(taskArn),
 				TaskDefinitionArn: aws.String(taskDefinitionArn),
+				LastStatus:        aws.String("RUNNING"),
 			},
 		},
 	}, nil)
 
-	err := ecsResource.GetTasks(context.Background(), clusterName, serviceName)
+	mockClient.On("DescribeTaskDefinition", mock.Anything, &ecs.DescribeTaskDefinitionInput{
+		TaskDefinition: aws.String(taskDefinitionArn),
+	}).Return(&ecs.DescribeTaskDefinitionOutput{
+		TaskDefinition: &types.TaskDefinition{
+			ContainerDefinitions: []types.ContainerDefinition{
+				{Name: aws.String("app"), Image: aws.String("nginx:1")},
+			},
+		},
+	}, nil)
+
+	targets, err := client.ListTargets(context.Background(), clusterName, serviceName)
 	assert.NoError(t, err)
+	assert.Equal(t, []Target{{
+		Cluster:        clusterName,
+		Service:        serviceName,
+		TaskArn:        taskArn,
+		TaskDefinition: taskDefinitionArn,
+		Container:      "app",
+		Image:          "nginx:1",
+		Status:         "RUNNING",
+	}}, targets)
 }
 
-func TestGetTasksPaginated(t *testing.T) {
+func TestListTargetsPaginated(t *testing.T) {
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 
 	clusterName := "test-cluster"
 	serviceName := "test-service"
@@ -262,15 +267,27 @@ func TestGetTasksPaginated(t *testing.T) {
 				},
 			},
 		}, nil)
+		mockClient.On("DescribeTaskDefinition", mock.Anything, &ecs.DescribeTaskDefinitionInput{
+			TaskDefinition: aws.String(taskDefinitionArn),
+		}).Return(&ecs.DescribeTaskDefinitionOutput{
+			TaskDefinition: &types.TaskDefinition{
+				ContainerDefinitions: []types.ContainerDefinition{
+					{Name: aws.String("app")},
+				},
+			},
+		}, nil)
 	}
 
-	err := ecsResource.GetTasks(context.Background(), clusterName, serviceName)
+	targets, err := client.ListTargets(context.Background(), clusterName, serviceName)
 	assert.NoError(t, err)
+	assert.Len(t, targets, 2)
+	assert.Equal(t, taskArn1, targets[0].TaskArn)
+	assert.Equal(t, taskArn2, targets[1].TaskArn)
 }
 
-func TestGetTasksListError(t *testing.T) {
+func TestListTargetsListError(t *testing.T) {
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 
 	clusterName := "test-cluster"
 	serviceName := "test-service"
@@ -280,7 +297,7 @@ func TestGetTasksListError(t *testing.T) {
 		MaxResults:  aws.Int32(100),
 	}).Return((*ecs.ListTasksOutput)(nil), errors.New("access denied"))
 
-	err := ecsResource.GetTasks(context.Background(), clusterName, serviceName)
+	_, err := client.ListTargets(context.Background(), clusterName, serviceName)
 	assert.Error(t, err)
 	assert.ErrorContains(t, err, "failed to list tasks")
 	assert.ErrorContains(t, err, "access denied")
@@ -288,7 +305,7 @@ func TestGetTasksListError(t *testing.T) {
 
 func TestListContainersForTask(t *testing.T) {
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 
 	taskDefinition := "test-task:1"
 	containerName := "test-container"
@@ -305,15 +322,14 @@ func TestListContainersForTask(t *testing.T) {
 		},
 	}, nil)
 
-	containers, err := ecsResource.ListContainersForTask(context.Background(), taskDefinition)
+	containers, err := client.listContainersForTask(context.Background(), taskDefinition)
 	assert.NoError(t, err)
-	assert.Len(t, containers, 1)
-	assert.Equal(t, containerName, containers[0].ContainerName)
+	assert.Equal(t, []containerInfo{{Name: containerName}}, containers)
 }
 
 func TestListContainersForTaskNilTaskDefinition(t *testing.T) {
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 
 	taskDefinition := "test-task:1"
 
@@ -323,22 +339,22 @@ func TestListContainersForTaskNilTaskDefinition(t *testing.T) {
 		TaskDefinition: nil,
 	}, nil)
 
-	_, err := ecsResource.ListContainersForTask(context.Background(), taskDefinition)
+	_, err := client.listContainersForTask(context.Background(), taskDefinition)
 	assert.ErrorContains(t, err, "no task definition returned for: "+taskDefinition)
 }
 
 func TestListContainersForTaskRejectsEmptyTaskDefinition(t *testing.T) {
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 
-	_, err := ecsResource.ListContainersForTask(context.Background(), "")
+	_, err := client.listContainersForTask(context.Background(), "")
 	assert.ErrorContains(t, err, "task definition is required")
 	mockClient.AssertNotCalled(t, "DescribeTaskDefinition", mock.Anything, mock.Anything)
 }
 
 func TestDescribeTasksAggregatesFailures(t *testing.T) {
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 
 	clusterName := "test-cluster"
 	okArn := "arn:aws:ecs:ap-northeast-1:123456789012:task/test-cluster/task-ok"
@@ -369,7 +385,7 @@ func TestDescribeTasksAggregatesFailures(t *testing.T) {
 		Cluster: aws.String(clusterName),
 	}).Return(&ecs.DescribeTasksOutput{}, nil) // Not found: zero tasks returned
 
-	tasks, err := ecsResource.describeTasks(context.Background(), clusterName, []string{okArn, badArn1, badArn2})
+	tasks, err := client.describeTasks(context.Background(), clusterName, []string{okArn, badArn1, badArn2})
 	assert.Len(t, tasks, 1)
 	assert.Equal(t, okArn, tasks[0].TaskArn)
 
@@ -382,7 +398,7 @@ func TestDescribeTasksAggregatesFailures(t *testing.T) {
 
 func TestDescribeTasksNoFailures(t *testing.T) {
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 
 	clusterName := "test-cluster"
 	okArn := "arn:aws:ecs:ap-northeast-1:123456789012:task/test-cluster/task-ok"
@@ -398,40 +414,26 @@ func TestDescribeTasksNoFailures(t *testing.T) {
 		}},
 	}, nil)
 
-	tasks, err := ecsResource.describeTasks(context.Background(), clusterName, []string{okArn})
+	tasks, err := client.describeTasks(context.Background(), clusterName, []string{okArn})
 	assert.NoError(t, err)
 	assert.Len(t, tasks, 1)
 }
 
-func TestGetServiceResourcesPropagatesDescribeTaskFailure(t *testing.T) {
+func TestListTargetsPropagatesDescribeTaskFailure(t *testing.T) {
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 
 	clusterName := "test-cluster"
 	serviceName := "test-service"
 	taskArn := "arn:aws:ecs:ap-northeast-1:123456789012:task/test-cluster/task-1"
-	listInput := &ecs.ListTasksInput{
+
+	// ListTargets lists the tasks once and describes each task. The
+	// describe failure must fail the whole service listing.
+	mockClient.On("ListTasks", mock.Anything, &ecs.ListTasksInput{
 		Cluster:     aws.String(clusterName),
 		ServiceName: aws.String(serviceName),
 		MaxResults:  aws.Int32(100),
-	}
-
-	// GetServiceResources lists tasks twice: once through GetTasks and
-	// once for itself. GetTasks must succeed so the direct describeTasks
-	// call is the one that fails.
-	mockClient.On("ListTasks", mock.Anything, listInput).Return(&ecs.ListTasksOutput{
-		TaskArns: []string{taskArn},
-	}, nil).Once()
-	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
-		Tasks:   []string{taskArn},
-		Cluster: aws.String(clusterName),
-	}).Return(&ecs.DescribeTasksOutput{
-		Tasks: []types.Task{{
-			TaskArn:           aws.String(taskArn),
-			TaskDefinitionArn: aws.String("arn:aws:ecs:ap-northeast-1:123456789012:task-definition/test-task:1"),
-		}},
-	}, nil).Once()
-	mockClient.On("ListTasks", mock.Anything, listInput).Return(&ecs.ListTasksOutput{
+	}).Return(&ecs.ListTasksOutput{
 		TaskArns: []string{taskArn},
 	}, nil).Once()
 	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
@@ -439,20 +441,16 @@ func TestGetServiceResourcesPropagatesDescribeTaskFailure(t *testing.T) {
 		Cluster: aws.String(clusterName),
 	}).Return(&ecs.DescribeTasksOutput{}, fmt.Errorf("describe failed: %w", errAccessDenied)).Once()
 
-	resources, err := ecsResource.GetServiceResources(
-		context.Background(),
-		ECSCluster{ClusterName: clusterName},
-		ECSService{ServiceName: serviceName},
-	)
-	assert.Nil(t, resources)
+	targets, err := client.ListTargets(context.Background(), clusterName, serviceName)
+	assert.Nil(t, targets)
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, errAccessDenied)
 	assert.ErrorContains(t, err, "failed to describe tasks")
 }
 
-func TestGetServiceResourcesAggregatesContainerFailures(t *testing.T) {
+func TestListTargetsAggregatesContainerFailures(t *testing.T) {
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 
 	clusterName := "test-cluster"
 	serviceName := "test-service"
@@ -460,17 +458,14 @@ func TestGetServiceResourcesAggregatesContainerFailures(t *testing.T) {
 	badTaskArn := "arn:aws:ecs:ap-northeast-1:123456789012:task/test-cluster/task-bad"
 	okTaskDef := "arn:aws:ecs:ap-northeast-1:123456789012:task-definition/ok:1"
 	badTaskDef := "arn:aws:ecs:ap-northeast-1:123456789012:task-definition/bad:1"
-	listInput := &ecs.ListTasksInput{
+
+	mockClient.On("ListTasks", mock.Anything, &ecs.ListTasksInput{
 		Cluster:     aws.String(clusterName),
 		ServiceName: aws.String(serviceName),
 		MaxResults:  aws.Int32(100),
-	}
-
-	// describeTask issues one DescribeTasks call per task ARN, and
-	// GetServiceResources runs describeTasks twice (once via GetTasks).
-	mockClient.On("ListTasks", mock.Anything, listInput).Return(&ecs.ListTasksOutput{
+	}).Return(&ecs.ListTasksOutput{
 		TaskArns: []string{okTaskArn, badTaskArn},
-	}, nil).Twice()
+	}, nil).Once()
 	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
 		Tasks:   []string{okTaskArn},
 		Cluster: aws.String(clusterName),
@@ -479,7 +474,7 @@ func TestGetServiceResourcesAggregatesContainerFailures(t *testing.T) {
 			TaskArn:           aws.String(okTaskArn),
 			TaskDefinitionArn: aws.String(okTaskDef),
 		}},
-	}, nil).Twice()
+	}, nil).Once()
 	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
 		Tasks:   []string{badTaskArn},
 		Cluster: aws.String(clusterName),
@@ -488,7 +483,7 @@ func TestGetServiceResourcesAggregatesContainerFailures(t *testing.T) {
 			TaskArn:           aws.String(badTaskArn),
 			TaskDefinitionArn: aws.String(badTaskDef),
 		}},
-	}, nil).Twice()
+	}, nil).Once()
 	mockClient.On("DescribeTaskDefinition", mock.Anything, &ecs.DescribeTaskDefinitionInput{
 		TaskDefinition: aws.String(okTaskDef),
 	}).Return(&ecs.DescribeTaskDefinitionOutput{
@@ -502,12 +497,8 @@ func TestGetServiceResourcesAggregatesContainerFailures(t *testing.T) {
 		TaskDefinition: aws.String(badTaskDef),
 	}).Return(&ecs.DescribeTaskDefinitionOutput{}, fmt.Errorf("describe failed: %w", errAccessDenied))
 
-	resources, err := ecsResource.GetServiceResources(
-		context.Background(),
-		ECSCluster{ClusterName: clusterName},
-		ECSService{ServiceName: serviceName},
-	)
-	assert.Nil(t, resources, "a single failing task must fail the whole service listing, not silently drop the task")
+	targets, err := client.ListTargets(context.Background(), clusterName, serviceName)
+	assert.Nil(t, targets, "a single failing task must fail the whole service listing, not silently drop the task")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, errAccessDenied)
 	assert.ErrorContains(t, err, badTaskArn)
@@ -518,67 +509,48 @@ func TestExecuteCommandRequiresFields(t *testing.T) {
 	// exercise the input validation that follows it.
 	putPluginOnPath(t)
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 
-	empty := ""
+	full := Target{
+		Cluster:   "test-cluster",
+		TaskArn:   "test-task",
+		Container: "test-container",
+	}
 	cases := []struct {
 		name    string
-		mutator func(input *ecs.ExecuteCommandInput)
+		target  Target
+		shell   string
 		wantMsg string
 	}{
 		{
-			name:    "nil cluster",
-			mutator: func(input *ecs.ExecuteCommandInput) { input.Cluster = nil },
-			wantMsg: "cluster is required",
-		},
-		{
 			name:    "empty cluster",
-			mutator: func(input *ecs.ExecuteCommandInput) { input.Cluster = &empty },
+			target:  Target{TaskArn: "test-task", Container: "test-container"},
+			shell:   "sh",
 			wantMsg: "cluster is required",
-		},
-		{
-			name:    "nil command",
-			mutator: func(input *ecs.ExecuteCommandInput) { input.Command = nil },
-			wantMsg: "command is required",
-		},
-		{
-			name:    "empty command",
-			mutator: func(input *ecs.ExecuteCommandInput) { input.Command = &empty },
-			wantMsg: "command is required",
-		},
-		{
-			name:    "nil container",
-			mutator: func(input *ecs.ExecuteCommandInput) { input.Container = nil },
-			wantMsg: "container is required",
-		},
-		{
-			name:    "empty container",
-			mutator: func(input *ecs.ExecuteCommandInput) { input.Container = &empty },
-			wantMsg: "container is required",
-		},
-		{
-			name:    "nil task",
-			mutator: func(input *ecs.ExecuteCommandInput) { input.Task = nil },
-			wantMsg: "task is required",
 		},
 		{
 			name:    "empty task",
-			mutator: func(input *ecs.ExecuteCommandInput) { input.Task = &empty },
+			target:  Target{Cluster: "test-cluster", Container: "test-container"},
+			shell:   "sh",
 			wantMsg: "task is required",
+		},
+		{
+			name:    "empty container",
+			target:  Target{Cluster: "test-cluster", TaskArn: "test-task"},
+			shell:   "sh",
+			wantMsg: "container is required",
+		},
+		{
+			name:    "empty shell",
+			target:  full,
+			shell:   "",
+			wantMsg: "shell is required",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			input := ecs.ExecuteCommandInput{
-				Cluster:   aws.String("test-cluster"),
-				Command:   aws.String("sh"),
-				Container: aws.String("test-container"),
-				Task:      aws.String("test-task"),
-			}
-			tc.mutator(&input)
-
-			err := ecsResource.ExecuteCommand(input)
+			err := client.ExecuteCommand(context.Background(), tc.target, tc.shell)
 			assert.ErrorContains(t, err, tc.wantMsg)
 		})
 	}
@@ -587,9 +559,9 @@ func TestExecuteCommandRequiresFields(t *testing.T) {
 }
 
 func TestExecuteCommandClientNotInitialized(t *testing.T) {
-	ecsResource := &ECSResource{}
+	client := &Client{}
 
-	err := ecsResource.ExecuteCommand(ecs.ExecuteCommandInput{})
+	err := client.ExecuteCommand(context.Background(), Target{Cluster: "c"}, "sh")
 	assert.ErrorContains(t, err, "ECS client is not initialized")
 }
 
@@ -625,13 +597,13 @@ func putPluginOnPath(t *testing.T) {
 func TestExecuteCommandWithoutPluginReturnsInstallDocsError(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 
-	err := ecsResource.ExecuteCommand(ecs.ExecuteCommandInput{
-		Cluster:   aws.String("test-cluster"),
-		Task:      aws.String("test-task"),
-		Container: aws.String("test-container"),
-	})
+	err := client.ExecuteCommand(context.Background(), Target{
+		Cluster:   "test-cluster",
+		TaskArn:   "test-task",
+		Container: "test-container",
+	}, "sh")
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), sessionManagerPluginName)
@@ -643,9 +615,9 @@ func TestExecuteCommandWithoutPluginReturnsInstallDocsError(t *testing.T) {
 func TestExecuteCommandRunsPluginWithResolvedEndpoint(t *testing.T) {
 	putPluginOnPath(t)
 	mockClient := new(MockECSClient)
-	ecsResource := newECSForTesting(mockClient, "ap-northeast-1")
+	client := newClientForTesting(mockClient, "ap-northeast-1")
 	runner := &FakeExecRunner{}
-	ecsResource.execRunner = runner
+	client.execRunner = runner
 
 	session := &types.Session{
 		SessionId:  aws.String("session-id"),
@@ -655,12 +627,11 @@ func TestExecuteCommandRunsPluginWithResolvedEndpoint(t *testing.T) {
 	cluster, task, container := "test-cluster", "test-task", "test-container"
 	mockClient.On("ExecuteCommand", mock.Anything, mock.Anything).Return(&ecs.ExecuteCommandOutput{Session: session}, nil)
 
-	err := ecsResource.ExecuteCommand(ecs.ExecuteCommandInput{
-		Cluster:   aws.String(cluster),
-		Command:   aws.String("sh"),
-		Task:      aws.String(task),
-		Container: aws.String(container),
-	})
+	err := client.ExecuteCommand(context.Background(), Target{
+		Cluster:   cluster,
+		TaskArn:   task,
+		Container: container,
+	}, "sh")
 
 	assert.NoError(t, err)
 	mockClient.AssertCalled(t, "ExecuteCommand", mock.Anything, mock.Anything)

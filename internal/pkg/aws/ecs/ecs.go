@@ -50,67 +50,62 @@ type ECSClient interface {
 	ExecuteCommand(ctx context.Context, params *ecs.ExecuteCommandInput, optFns ...func(*ecs.Options)) (*ecs.ExecuteCommandOutput, error)
 }
 
-type ECSResource struct {
+// Target is the flat per-container value the CLI consumes. One Target
+// describes exactly one container of one task, so callers never navigate
+// a cluster → service → task hierarchy.
+type Target struct {
+	Cluster        string
+	Service        string
+	TaskArn        string
+	TaskDefinition string
+	Container      string
+	Image          string
+	Status         string
+}
+
+// describedTask carries the task-level fields extracted from
+// DescribeTasks. Its containers are resolved separately per task
+// definition.
+type describedTask struct {
+	TaskArn        string
+	TaskDefinition string
+	LastStatus     string
+}
+
+// containerInfo is one container definition entry of a task definition.
+type containerInfo struct {
+	Name  string
+	Image string
+}
+
+// Client wraps the ECS API client and exposes the listing and execution
+// operations on top of it. It holds no resource state: every method
+// returns its data, so call order does not matter.
+type Client struct {
 	client     ECSClient
 	execRunner ECSExecRunner
-
-	Clusters []ECSCluster
 
 	Region string
 }
 
-type ECSCluster struct {
-	ClusterName string
-	ClusterArn  string
-	Services    []ECSService
-}
-
-type ECSService struct {
-	ServiceName string
-	ServiceArn  string
-	ClusterName string
-	Tasks       []ECSTask
-}
-
-type ECSTask struct {
-	TaskArn        string
-	TaskDefinition string
-	ServiceName    string
-	ClusterName    string
-	Containers     []ECSContainer
-	LastStatus     string
-	DesiredStatus  string
-}
-
-type ECSContainer struct {
-	ContainerName string
-	ContainerArn  string
-	TaskArn       string
-	Shell         string
-	Status        string
-	Image         string
-}
-
-func NewECS(cfg aws.Config, region string) *ECSResource {
-	return &ECSResource{
+func NewClient(cfg aws.Config, region string) *Client {
+	return &Client{
 		client:     ecs.NewFromConfig(cfg),
 		execRunner: &DefaultECSExecRunner{},
-		Clusters:   []ECSCluster{},
 		Region:     region,
 	}
 }
 
-func newECSForTesting(client ECSClient, region string) *ECSResource {
-	return &ECSResource{
+func newClientForTesting(client ECSClient, region string) *Client {
+	return &Client{
 		client:     client,
 		execRunner: &DefaultECSExecRunner{},
-		Clusters:   []ECSCluster{},
 		Region:     region,
 	}
 }
 
-func (e *ECSResource) ExecuteCommand(input ecs.ExecuteCommandInput) error {
-	if e.client == nil {
+func (c *Client) ExecuteCommand(ctx context.Context, target Target, shell string) error {
+	if c.client == nil {
 		return fmt.Errorf("ECS client is not initialized")
 	}
 
@@ -121,13 +116,12 @@ func (e *ECSResource) ExecuteCommand(input ecs.ExecuteCommandInput) error {
 			sessionManagerPluginName, ssmPluginInstallDocsURL, err)
 	}
 
-	ctx := context.TODO()
-	preparedInput, err := e.buildExecuteCommandInput(input)
+	preparedInput, err := buildExecuteCommandInput(target, shell)
 	if err != nil {
 		return fmt.Errorf("failed to build execute command input: %w", err)
 	}
 
-	execCommandOutput, err := e.client.ExecuteCommand(ctx, &preparedInput)
+	execCommandOutput, err := c.client.ExecuteCommand(ctx, &preparedInput)
 	if err != nil {
 		return fmt.Errorf("failed to execute command: %w", err)
 	}
@@ -137,51 +131,50 @@ func (e *ECSResource) ExecuteCommand(input ecs.ExecuteCommandInput) error {
 		return fmt.Errorf("failed to marshal session info: %w", err)
 	}
 
-	target := fmt.Sprintf("ecs:%s_%s_%s", *preparedInput.Cluster, *preparedInput.Task, *preparedInput.Container)
-	targetJSON, err := e.buildSSMTargetJSON(target)
+	ssmTarget := fmt.Sprintf("ecs:%s_%s_%s", *preparedInput.Cluster, *preparedInput.Task, *preparedInput.Container)
+	targetJSON, err := c.buildSSMTargetJSON(ssmTarget)
 	if err != nil {
 		return fmt.Errorf("failed to create target JSON: %w", err)
 	}
 
-	cmd := e.buildSessionManagerCommand(sessionInfo, targetJSON)
-	return e.execRunner.RunCommand(cmd)
+	cmd := c.buildSessionManagerCommand(sessionInfo, targetJSON)
+	return c.execRunner.RunCommand(cmd)
 }
 
 // buildExecuteCommandInput validates the required fields and returns a
-// rebuilt input. Nil or empty fields would either panic when dereferenced
-// or be sent to the ECS API as empty values, so they are rejected here
-// before any API call.
-func (e *ECSResource) buildExecuteCommandInput(input ecs.ExecuteCommandInput) (ecs.ExecuteCommandInput, error) {
-	if err := requireString(input.Cluster, "cluster"); err != nil {
+// rebuilt input. Empty fields would be sent to the ECS API as empty
+// values, so they are rejected here before any API call.
+func buildExecuteCommandInput(target Target, shell string) (ecs.ExecuteCommandInput, error) {
+	if err := requireNonEmpty(target.Cluster, "cluster"); err != nil {
 		return ecs.ExecuteCommandInput{}, err
 	}
-	if err := requireString(input.Command, "command"); err != nil {
+	if err := requireNonEmpty(target.TaskArn, "task"); err != nil {
 		return ecs.ExecuteCommandInput{}, err
 	}
-	if err := requireString(input.Container, "container"); err != nil {
+	if err := requireNonEmpty(target.Container, "container"); err != nil {
 		return ecs.ExecuteCommandInput{}, err
 	}
-	if err := requireString(input.Task, "task"); err != nil {
+	if err := requireNonEmpty(shell, "shell"); err != nil {
 		return ecs.ExecuteCommandInput{}, err
 	}
 
 	return ecs.ExecuteCommandInput{
-		Cluster:     aws.String(*input.Cluster),
-		Command:     aws.String(*input.Command),
-		Container:   aws.String(*input.Container),
+		Cluster:     aws.String(target.Cluster),
+		Command:     aws.String(shell),
+		Container:   aws.String(target.Container),
 		Interactive: true,
-		Task:        aws.String(*input.Task),
+		Task:        aws.String(target.TaskArn),
 	}, nil
 }
 
-func requireString(value *string, name string) error {
-	if value == nil || *value == "" {
+func requireNonEmpty(value, name string) error {
+	if value == "" {
 		return fmt.Errorf("%s is required", name)
 	}
 	return nil
 }
 
-func (e *ECSResource) buildSSMTargetJSON(target string) ([]byte, error) {
+func (c *Client) buildSSMTargetJSON(target string) ([]byte, error) {
 	ssmTarget := struct {
 		Target string `json:"Target"`
 	}{
@@ -190,15 +183,15 @@ func (e *ECSResource) buildSSMTargetJSON(target string) ([]byte, error) {
 	return json.Marshal(ssmTarget)
 }
 
-func (e *ECSResource) buildSessionManagerCommand(sessionInfo, targetJSON []byte) *exec.Cmd {
+func (c *Client) buildSessionManagerCommand(sessionInfo, targetJSON []byte) *exec.Cmd {
 	cmd := exec.Command(
 		sessionManagerPluginName,
 		string(sessionInfo),
-		e.Region,
+		c.Region,
 		"StartSession",
 		"",
 		string(targetJSON),
-		resolveSSMEndpoint(e.Region),
+		resolveSSMEndpoint(c.Region),
 	)
 
 	cmd.Env = os.Environ()
@@ -207,21 +200,6 @@ func (e *ECSResource) buildSessionManagerCommand(sessionInfo, targetJSON []byte)
 	cmd.Stdin = os.Stdin
 
 	return cmd
-}
-
-func (e *ECSResource) listClusterARNs(ctx context.Context) ([]string, error) {
-	paginator := ecs.NewListClustersPaginator(e.client, &ecs.ListClustersInput{
-		MaxResults: aws.Int32(100),
-	})
-	var clusterArns []string
-	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list clusters: %w", err)
-		}
-		clusterArns = append(clusterArns, page.ClusterArns...)
-	}
-	return clusterArns, nil
 }
 
 // resolveSSMEndpoint returns the SSM endpoint that session-manager-plugin
@@ -256,100 +234,70 @@ func ssmHostSuffix(region string) string {
 	}
 }
 
-func (e *ECSResource) ListClusters(ctx context.Context) error {
-	clusterArns, err := e.listClusterARNs(ctx)
+// ListClusters returns the cluster names of the region, following
+// ListClusters pagination until no NextToken is returned.
+func (c *Client) ListClusters(ctx context.Context) ([]string, error) {
+	clusterArns, err := c.listClusterARNs(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	clusters, err := e.parseClusterARNs(clusterArns)
+	names, err := parseClusterARNs(clusterArns)
 	if err != nil {
-		return fmt.Errorf("failed to create clusters: %w", err)
+		return nil, fmt.Errorf("failed to create clusters: %w", err)
 	}
-	e.Clusters = clusters
-	return nil
+	return names, nil
 }
 
-func (e *ECSResource) parseClusterARNs(clusterArns []string) ([]ECSCluster, error) {
-	var clusters []ECSCluster
+// parseClusterARNs maps cluster ARNs to cluster names, rejecting empty
+// ARNs. strings.Split always returns at least one element, so the last
+// "/"-separated element is the name.
+func parseClusterARNs(clusterArns []string) ([]string, error) {
+	var names []string
 	for _, arn := range clusterArns {
 		if arn == "" {
 			return nil, fmt.Errorf("empty cluster ARN provided")
 		}
 		parts := strings.Split(arn, "/")
-		if len(parts) == 0 {
-			return nil, fmt.Errorf("invalid cluster ARN format: %s", arn)
-		}
-		name := parts[len(parts)-1]
-		clusters = append(clusters, ECSCluster{
-			ClusterName: name,
-			ClusterArn:  arn,
-			Services:    []ECSService{},
-		})
+		names = append(names, parts[len(parts)-1])
 	}
-	return clusters, nil
+	return names, nil
 }
 
-func (e *ECSResource) listServiceARNs(ctx context.Context, cluster string) ([]string, error) {
-	paginator := ecs.NewListServicesPaginator(e.client, &ecs.ListServicesInput{
-		Cluster:    aws.String(cluster),
-		MaxResults: aws.Int32(100),
-	})
-	var serviceArns []string
-	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list services: %w", err)
-		}
-		serviceArns = append(serviceArns, page.ServiceArns...)
-	}
-	return serviceArns, nil
-}
-
-func (e *ECSResource) ListServices(ctx context.Context, cluster string) error {
-	serviceArns, err := e.listServiceARNs(ctx, cluster)
+// ListServices returns the service names of a cluster, following
+// ListServices pagination until no NextToken is returned.
+func (c *Client) ListServices(ctx context.Context, cluster string) ([]string, error) {
+	serviceArns, err := c.listServiceARNs(ctx, cluster)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	services, err := e.parseServiceARNs(serviceArns, cluster)
+	names, err := parseServiceARNs(serviceArns)
 	if err != nil {
-		return fmt.Errorf("failed to create services: %w", err)
+		return nil, fmt.Errorf("failed to create services: %w", err)
 	}
-	for i := range e.Clusters {
-		if e.Clusters[i].ClusterName == cluster {
-			e.Clusters[i].Services = services
-			break
-		}
-	}
-	return nil
+	return names, nil
 }
 
-func (e *ECSResource) parseServiceARNs(serviceArns []string, clusterName string) ([]ECSService, error) {
-	var services []ECSService
+// parseServiceARNs maps service ARNs to service names, rejecting empty
+// ARNs. strings.Split always returns at least one element, so the last
+// "/"-separated element is the name.
+func parseServiceARNs(serviceArns []string) ([]string, error) {
+	var names []string
 	for _, arn := range serviceArns {
 		if arn == "" {
 			return nil, fmt.Errorf("empty service ARN provided")
 		}
 		parts := strings.Split(arn, "/")
-		if len(parts) == 0 {
-			return nil, fmt.Errorf("invalid service ARN format: %s", arn)
-		}
-		name := parts[len(parts)-1]
-		services = append(services, ECSService{
-			ServiceName: name,
-			ServiceArn:  arn,
-			ClusterName: clusterName,
-			Tasks:       []ECSTask{},
-		})
+		names = append(names, parts[len(parts)-1])
 	}
-	return services, nil
+	return names, nil
 }
 
 // listTaskArns returns the task ARNs of a service, following ListTasks
 // pagination until no NextToken is returned.
-func (e *ECSResource) listTaskArns(ctx context.Context, cluster, service string) ([]string, error) {
-	paginator := ecs.NewListTasksPaginator(e.client, &ecs.ListTasksInput{
+func (c *Client) listTaskArns(ctx context.Context, cluster, service string) ([]string, error) {
+	paginator := ecs.NewListTasksPaginator(c.client, &ecs.ListTasksInput{
 		Cluster:     aws.String(cluster),
 		ServiceName: aws.String(service),
 		MaxResults:  aws.Int32(100),
@@ -365,18 +313,49 @@ func (e *ECSResource) listTaskArns(ctx context.Context, cluster, service string)
 	return taskArns, nil
 }
 
-func (e *ECSResource) GetTasks(ctx context.Context, cluster, service string) error {
-	taskArns, err := e.listTaskArns(ctx, cluster, service)
+// ListTargets lists every task of a service, describes each task and its
+// task definition, and returns one flat Target per container. Per-task
+// failures are aggregated with errors.Join and returned with no targets:
+// a partial list would silently omit tasks the user cannot see, so any
+// per-task failure is fatal for this service.
+func (c *Client) ListTargets(ctx context.Context, cluster, service string) ([]Target, error) {
+	taskArns, err := c.listTaskArns(ctx, cluster, service)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	_, err = e.describeTasks(ctx, cluster, taskArns)
+	tasks, err := c.describeTasks(ctx, cluster, taskArns)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed to describe tasks: %w", err)
 	}
 
-	return nil
+	var targets []Target
+	var containerErrs []error
+	for _, task := range tasks {
+		containers, err := c.listContainersForTask(ctx, task.TaskDefinition)
+		if err != nil {
+			containerErrs = append(containerErrs, fmt.Errorf("failed to list containers for task %s: %w", task.TaskArn, err))
+			continue
+		}
+
+		for _, container := range containers {
+			targets = append(targets, Target{
+				Cluster:        cluster,
+				Service:        service,
+				TaskArn:        task.TaskArn,
+				TaskDefinition: task.TaskDefinition,
+				Container:      container.Name,
+				Image:          container.Image,
+				Status:         task.LastStatus,
+			})
+		}
+	}
+
+	if err := errors.Join(containerErrs...); err != nil {
+		return nil, err
+	}
+
+	return targets, nil
 }
 
 // describeTasks describes every listed task and keeps the ones that
@@ -384,11 +363,11 @@ func (e *ECSResource) GetTasks(ctx context.Context, cluster, service string) err
 // useful, but the failure is not swallowed: it is aggregated with
 // errors.Join and returned, so callers treat the run as failed with the
 // real causes instead of showing a silently incomplete list.
-func (e *ECSResource) describeTasks(ctx context.Context, cluster string, taskArns []string) ([]ECSTask, error) {
-	var tasks []ECSTask
+func (c *Client) describeTasks(ctx context.Context, cluster string, taskArns []string) ([]describedTask, error) {
+	var tasks []describedTask
 	var taskErrs []error
 	for _, taskArn := range taskArns {
-		task, err := e.describeTask(ctx, cluster, taskArn)
+		task, err := c.describeTask(ctx, cluster, taskArn)
 		if err != nil {
 			taskErrs = append(taskErrs, fmt.Errorf("task %s: %w", taskArn, err))
 			continue
@@ -400,12 +379,12 @@ func (e *ECSResource) describeTasks(ctx context.Context, cluster string, taskArn
 	return tasks, errors.Join(taskErrs...)
 }
 
-func (e *ECSResource) describeTask(ctx context.Context, cluster, taskArn string) (*ECSTask, error) {
+func (c *Client) describeTask(ctx context.Context, cluster, taskArn string) (*describedTask, error) {
 	describeTasksInput := &ecs.DescribeTasksInput{
 		Tasks:   []string{taskArn},
 		Cluster: aws.String(cluster),
 	}
-	describeTasksOutput, err := e.client.DescribeTasks(ctx, describeTasksInput)
+	describeTasksOutput, err := c.client.DescribeTasks(ctx, describeTasksInput)
 	if err != nil {
 		return nil, fmt.Errorf("failed to describe task: %w", err)
 	}
@@ -421,25 +400,20 @@ func (e *ECSResource) describeTask(ctx context.Context, cluster, taskArn string)
 
 	task := describeTasksOutput.Tasks[0]
 	lastStatus := ""
-	desiredStatus := ""
 	if task.LastStatus != nil {
 		lastStatus = *task.LastStatus
 	}
-	if task.DesiredStatus != nil {
-		desiredStatus = *task.DesiredStatus
-	}
 
-	return &ECSTask{
+	return &describedTask{
 		TaskArn:        taskArn,
 		TaskDefinition: *taskDefinitionArn,
-		ClusterName:    cluster,
 		LastStatus:     lastStatus,
-		DesiredStatus:  desiredStatus,
-		Containers:     []ECSContainer{},
 	}, nil
 }
 
-func (e *ECSResource) ListContainersForTask(ctx context.Context, taskDefinition string) ([]ECSContainer, error) {
+// listContainersForTask resolves the container definitions of a task
+// definition through the DescribeTaskDefinition API.
+func (c *Client) listContainersForTask(ctx context.Context, taskDefinition string) ([]containerInfo, error) {
 	if taskDefinition == "" {
 		return nil, fmt.Errorf("task definition is required")
 	}
@@ -448,7 +422,7 @@ func (e *ECSResource) ListContainersForTask(ctx context.Context, taskDefinition 
 		TaskDefinition: aws.String(taskDefinition),
 	}
 
-	result, err := e.client.DescribeTaskDefinition(ctx, input)
+	result, err := c.client.DescribeTaskDefinition(ctx, input)
 	if err != nil {
 		return nil, fmt.Errorf("failed to describe task definition: %w", err)
 	}
@@ -457,15 +431,15 @@ func (e *ECSResource) ListContainersForTask(ctx context.Context, taskDefinition 
 		return nil, fmt.Errorf("no task definition returned for: %s", taskDefinition)
 	}
 
-	containers, err := e.parseContainerDefinitions(result.TaskDefinition.ContainerDefinitions, "")
+	containers, err := parseContainerDefinitions(result.TaskDefinition.ContainerDefinitions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create containers: %w", err)
 	}
 	return containers, nil
 }
 
-func (e *ECSResource) parseContainerDefinitions(containerDefinitions []types.ContainerDefinition, taskArn string) ([]ECSContainer, error) {
-	var containers []ECSContainer
+func parseContainerDefinitions(containerDefinitions []types.ContainerDefinition) ([]containerInfo, error) {
+	var containers []containerInfo
 	for _, container := range containerDefinitions {
 		if container.Name == nil {
 			return nil, fmt.Errorf("container name is nil")
@@ -474,127 +448,41 @@ func (e *ECSResource) parseContainerDefinitions(containerDefinitions []types.Con
 		if container.Image != nil {
 			image = *container.Image
 		}
-		containers = append(containers, ECSContainer{
-			ContainerName: *container.Name,
-			TaskArn:       taskArn,
-			Image:         image,
-			Status:        "",
+		containers = append(containers, containerInfo{
+			Name:  *container.Name,
+			Image: image,
 		})
 	}
 	return containers, nil
 }
 
-func (e *ECSResource) LoadAllResources(ctx context.Context) error {
-	err := e.ListClusters(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list clusters: %w", err)
-	}
-
-	for _, cluster := range e.Clusters {
-		err = e.ListServices(ctx, cluster.ClusterName)
+func (c *Client) listClusterARNs(ctx context.Context) ([]string, error) {
+	paginator := ecs.NewListClustersPaginator(c.client, &ecs.ListClustersInput{
+		MaxResults: aws.Int32(100),
+	})
+	var clusterArns []string
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
-			return fmt.Errorf("failed to list services for cluster %s: %w", cluster.ClusterName, err)
+			return nil, fmt.Errorf("failed to list clusters: %w", err)
 		}
-
-		for _, service := range cluster.Services {
-			err = e.GetTasks(ctx, cluster.ClusterName, service.ServiceName)
-			if err != nil {
-				return fmt.Errorf("failed to get tasks for service %s: %w", service.ServiceName, err)
-			}
-		}
+		clusterArns = append(clusterArns, page.ClusterArns...)
 	}
-
-	return nil
+	return clusterArns, nil
 }
 
-func (e *ECSResource) GetClusterResources(ctx context.Context, cluster ECSCluster) ([]ECSResource, error) {
-	var resources []ECSResource
-
-	if err := e.ListServices(ctx, cluster.ClusterName); err != nil {
-		return nil, fmt.Errorf("failed to list services: %w", err)
-	}
-
-	// Find the updated cluster with services from e.Clusters
-	var updatedCluster *ECSCluster
-	for i := range e.Clusters {
-		if e.Clusters[i].ClusterName == cluster.ClusterName {
-			updatedCluster = &e.Clusters[i]
-			break
-		}
-	}
-
-	if updatedCluster == nil {
-		return nil, fmt.Errorf("cluster not found after listing services: %s", cluster.ClusterName)
-	}
-
-	for _, service := range updatedCluster.Services {
-		serviceResources, err := e.GetServiceResources(ctx, *updatedCluster, service)
+func (c *Client) listServiceARNs(ctx context.Context, cluster string) ([]string, error) {
+	paginator := ecs.NewListServicesPaginator(c.client, &ecs.ListServicesInput{
+		Cluster:    aws.String(cluster),
+		MaxResults: aws.Int32(100),
+	})
+	var serviceArns []string
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to list services: %w", err)
 		}
-		resources = append(resources, serviceResources...)
+		serviceArns = append(serviceArns, page.ServiceArns...)
 	}
-
-	return resources, nil
-}
-
-func (e *ECSResource) GetServiceResources(ctx context.Context, cluster ECSCluster, service ECSService) ([]ECSResource, error) {
-	var resources []ECSResource
-
-	if err := e.GetTasks(ctx, cluster.ClusterName, service.ServiceName); err != nil {
-		return nil, fmt.Errorf("failed to get tasks: %w", err)
-	}
-
-	// Get all tasks for this service
-	taskArns, err := e.listTaskArns(ctx, cluster.ClusterName, service.ServiceName)
-	if err != nil {
-		return nil, err
-	}
-
-	tasks, err := e.describeTasks(ctx, cluster.ClusterName, taskArns)
-	if err != nil {
-		return nil, fmt.Errorf("failed to describe tasks: %w", err)
-	}
-
-	if len(tasks) == 0 {
-		return resources, nil
-	}
-
-	// For each task, get containers and create a complete resource. A
-	// task whose task definition cannot be described is skipped, but the
-	// failures are aggregated with errors.Join and returned (never logged
-	// and hidden): a partial list would silently omit tasks the user
-	// cannot see, so any per-task failure is fatal for this service.
-	var containerErrs []error
-	for _, task := range tasks {
-		containers, err := e.ListContainersForTask(ctx, task.TaskDefinition)
-		if err != nil {
-			containerErrs = append(containerErrs, fmt.Errorf("failed to list containers for task %s: %w", task.TaskArn, err))
-			continue
-		}
-
-		// Update task with containers
-		task.Containers = containers
-
-		// Create a complete resource with all hierarchical data
-		resource := ECSResource{
-			Clusters: []ECSCluster{{
-				ClusterName: cluster.ClusterName,
-				ClusterArn:  cluster.ClusterArn,
-				Services: []ECSService{{
-					ServiceName: service.ServiceName,
-					ServiceArn:  service.ServiceArn,
-					ClusterName: cluster.ClusterName,
-					Tasks:       []ECSTask{task},
-				}},
-			}},
-		}
-		resources = append(resources, resource)
-	}
-
-	if err := errors.Join(containerErrs...); err != nil {
-		return nil, err
-	}
-
-	return resources, nil
+	return serviceArns, nil
 }
