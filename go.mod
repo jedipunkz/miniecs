@@ -5,7 +5,7 @@ go 1.26.10
 require (
 	github.com/aws/aws-sdk-go-v2 v1.47.3
 	github.com/aws/aws-sdk-go-v2/config v1.33.9
-	github.com/aws/aws-sdk-go-v2/service/ecs v1.100.2
+	github.com/aws/aws-sdk-go-v2/service/ecs v1.100.3
 	github.com/ktr0731/go-fuzzyfinder v0.9.0
 	github.com/olekukonko/tablewriter v1.1.5
 	github.com/sirupsen/logrus v1.10.2
