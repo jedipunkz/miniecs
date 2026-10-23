@@ -45,11 +45,6 @@ func (m *MockECSClient) DescribeTasks(ctx context.Context, params *ecs.DescribeT
 	return args.Get(0).(*ecs.DescribeTasksOutput), args.Error(1)
 }
 
-func (m *MockECSClient) DescribeTaskDefinition(ctx context.Context, params *ecs.DescribeTaskDefinitionInput, optFns ...func(*ecs.Options)) (*ecs.DescribeTaskDefinitionOutput, error) {
-	args := m.Called(ctx, params)
-	return args.Get(0).(*ecs.DescribeTaskDefinitionOutput), args.Error(1)
-}
-
 func (m *MockECSClient) ExecuteCommand(ctx context.Context, params *ecs.ExecuteCommandInput, optFns ...func(*ecs.Options)) (*ecs.ExecuteCommandOutput, error) {
 	args := m.Called(ctx, params)
 	return args.Get(0).(*ecs.ExecuteCommandOutput), args.Error(1)
@@ -189,7 +184,7 @@ func TestListTargets(t *testing.T) {
 		MaxResults:  aws.Int32(100),
 	}).Return(&ecs.ListTasksOutput{
 		TaskArns: []string{taskArn},
-	}, nil)
+	}, nil).Once()
 
 	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
 		Tasks:   []string{taskArn},
@@ -199,20 +194,16 @@ func TestListTargets(t *testing.T) {
 			{
 				TaskArn:           aws.String(taskArn),
 				TaskDefinitionArn: aws.String(taskDefinitionArn),
-				LastStatus:        aws.String("RUNNING"),
+				Containers: []types.Container{
+					{
+						Name:       aws.String("app"),
+						Image:      aws.String("nginx:1"),
+						LastStatus: aws.String("RUNNING"),
+					},
+				},
 			},
 		},
-	}, nil)
-
-	mockClient.On("DescribeTaskDefinition", mock.Anything, &ecs.DescribeTaskDefinitionInput{
-		TaskDefinition: aws.String(taskDefinitionArn),
-	}).Return(&ecs.DescribeTaskDefinitionOutput{
-		TaskDefinition: &types.TaskDefinition{
-			ContainerDefinitions: []types.ContainerDefinition{
-				{Name: aws.String("app"), Image: aws.String("nginx:1")},
-			},
-		},
-	}, nil)
+	}, nil).Once()
 
 	targets, err := client.ListTargets(context.Background(), clusterName, serviceName)
 	assert.NoError(t, err)
@@ -225,6 +216,7 @@ func TestListTargets(t *testing.T) {
 		Image:          "nginx:1",
 		Status:         "RUNNING",
 	}}, targets)
+	mockClient.AssertExpectations(t)
 }
 
 func TestListTargetsPaginated(t *testing.T) {
@@ -244,7 +236,7 @@ func TestListTargetsPaginated(t *testing.T) {
 	}).Return(&ecs.ListTasksOutput{
 		TaskArns:  []string{taskArn1},
 		NextToken: aws.String("page-2"),
-	}, nil)
+	}, nil).Once()
 	mockClient.On("ListTasks", mock.Anything, &ecs.ListTasksInput{
 		Cluster:     aws.String(clusterName),
 		ServiceName: aws.String(serviceName),
@@ -252,37 +244,30 @@ func TestListTargetsPaginated(t *testing.T) {
 		NextToken:   aws.String("page-2"),
 	}).Return(&ecs.ListTasksOutput{
 		TaskArns: []string{taskArn2},
-	}, nil)
+	}, nil).Once()
 
-	taskArns := []string{taskArn1, taskArn2}
-	for _, taskArn := range taskArns {
-		mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
-			Tasks:   []string{taskArn},
-			Cluster: aws.String(clusterName),
-		}).Return(&ecs.DescribeTasksOutput{
-			Tasks: []types.Task{
-				{
-					TaskArn:           aws.String(taskArn),
-					TaskDefinitionArn: aws.String(taskDefinitionArn),
-				},
+	newDescribedTask := func(taskArn string) types.Task {
+		return types.Task{
+			TaskArn:           aws.String(taskArn),
+			TaskDefinitionArn: aws.String(taskDefinitionArn),
+			Containers: []types.Container{
+				{Name: aws.String("app"), LastStatus: aws.String("RUNNING")},
 			},
-		}, nil)
-		mockClient.On("DescribeTaskDefinition", mock.Anything, &ecs.DescribeTaskDefinitionInput{
-			TaskDefinition: aws.String(taskDefinitionArn),
-		}).Return(&ecs.DescribeTaskDefinitionOutput{
-			TaskDefinition: &types.TaskDefinition{
-				ContainerDefinitions: []types.ContainerDefinition{
-					{Name: aws.String("app")},
-				},
-			},
-		}, nil)
+		}
 	}
+	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
+		Tasks:   []string{taskArn1, taskArn2},
+		Cluster: aws.String(clusterName),
+	}).Return(&ecs.DescribeTasksOutput{
+		Tasks: []types.Task{newDescribedTask(taskArn1), newDescribedTask(taskArn2)},
+	}, nil).Once()
 
 	targets, err := client.ListTargets(context.Background(), clusterName, serviceName)
 	assert.NoError(t, err)
 	assert.Len(t, targets, 2)
 	assert.Equal(t, taskArn1, targets[0].TaskArn)
 	assert.Equal(t, taskArn2, targets[1].TaskArn)
+	mockClient.AssertExpectations(t)
 }
 
 func TestListTargetsListError(t *testing.T) {
@@ -303,53 +288,28 @@ func TestListTargetsListError(t *testing.T) {
 	assert.ErrorContains(t, err, "access denied")
 }
 
-func TestListContainersForTask(t *testing.T) {
-	mockClient := new(MockECSClient)
-	client := newClientForTesting(mockClient, "ap-northeast-1")
-
-	taskDefinition := "test-task:1"
-	containerName := "test-container"
-
-	mockClient.On("DescribeTaskDefinition", mock.Anything, &ecs.DescribeTaskDefinitionInput{
-		TaskDefinition: aws.String(taskDefinition),
-	}).Return(&ecs.DescribeTaskDefinitionOutput{
-		TaskDefinition: &types.TaskDefinition{
-			ContainerDefinitions: []types.ContainerDefinition{
-				{
-					Name: aws.String(containerName),
-				},
-			},
+func TestParseTaskContainers(t *testing.T) {
+	containers, err := parseTaskContainers([]types.Container{
+		{
+			Name:       aws.String("app"),
+			Image:      aws.String("nginx:1"),
+			LastStatus: aws.String("RUNNING"),
 		},
-	}, nil)
-
-	containers, err := client.listContainersForTask(context.Background(), taskDefinition)
+		{
+			// Optional fields may be missing while the task starts up.
+			Name: aws.String("sidecar"),
+		},
+	})
 	assert.NoError(t, err)
-	assert.Equal(t, []containerInfo{{Name: containerName}}, containers)
+	assert.Equal(t, []containerInfo{
+		{Name: "app", Image: "nginx:1", LastStatus: "RUNNING"},
+		{Name: "sidecar"},
+	}, containers)
 }
 
-func TestListContainersForTaskNilTaskDefinition(t *testing.T) {
-	mockClient := new(MockECSClient)
-	client := newClientForTesting(mockClient, "ap-northeast-1")
-
-	taskDefinition := "test-task:1"
-
-	mockClient.On("DescribeTaskDefinition", mock.Anything, &ecs.DescribeTaskDefinitionInput{
-		TaskDefinition: aws.String(taskDefinition),
-	}).Return(&ecs.DescribeTaskDefinitionOutput{
-		TaskDefinition: nil,
-	}, nil)
-
-	_, err := client.listContainersForTask(context.Background(), taskDefinition)
-	assert.ErrorContains(t, err, "no task definition returned for: "+taskDefinition)
-}
-
-func TestListContainersForTaskRejectsEmptyTaskDefinition(t *testing.T) {
-	mockClient := new(MockECSClient)
-	client := newClientForTesting(mockClient, "ap-northeast-1")
-
-	_, err := client.listContainersForTask(context.Background(), "")
-	assert.ErrorContains(t, err, "task definition is required")
-	mockClient.AssertNotCalled(t, "DescribeTaskDefinition", mock.Anything, mock.Anything)
+func TestParseTaskContainersRejectsNilName(t *testing.T) {
+	_, err := parseTaskContainers([]types.Container{{Image: aws.String("nginx:1")}})
+	assert.ErrorContains(t, err, "container name is nil")
 }
 
 func TestDescribeTasksAggregatesFailures(t *testing.T) {
@@ -362,38 +322,34 @@ func TestDescribeTasksAggregatesFailures(t *testing.T) {
 	badArn2 := "arn:aws:ecs:ap-northeast-1:123456789012:task/test-cluster/task-bad-2"
 	taskDefArn := "arn:aws:ecs:ap-northeast-1:123456789012:task-definition/test-task:1"
 
-	deniedErr := errors.New("access denied")
-	notFoundErr := errors.New("task not found")
+	notFoundReason := "task not found"
 
+	// One batch carries all requested ARNs. badArn1 is reported in
+	// Failures, badArn2 is absent from both Tasks and Failures.
 	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
-		Tasks:   []string{okArn},
+		Tasks:   []string{okArn, badArn1, badArn2},
 		Cluster: aws.String(clusterName),
 	}).Return(&ecs.DescribeTasksOutput{
 		Tasks: []types.Task{{
 			TaskArn:           aws.String(okArn),
 			TaskDefinitionArn: aws.String(taskDefArn),
+			Containers:        []types.Container{{Name: aws.String("app")}},
 		}},
-	}, nil)
-
-	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
-		Tasks:   []string{badArn1},
-		Cluster: aws.String(clusterName),
-	}).Return(&ecs.DescribeTasksOutput{}, fmt.Errorf("describe failed: %w", deniedErr))
-
-	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
-		Tasks:   []string{badArn2},
-		Cluster: aws.String(clusterName),
-	}).Return(&ecs.DescribeTasksOutput{}, nil) // Not found: zero tasks returned
+		Failures: []types.Failure{{
+			Arn:    aws.String(badArn1),
+			Reason: aws.String(notFoundReason),
+		}},
+	}, nil).Once()
 
 	tasks, err := client.describeTasks(context.Background(), clusterName, []string{okArn, badArn1, badArn2})
 	assert.Len(t, tasks, 1)
 	assert.Equal(t, okArn, tasks[0].TaskArn)
 
 	assert.Error(t, err)
-	assert.ErrorIs(t, err, deniedErr)
-	assert.ErrorContains(t, err, notFoundErr.Error())
 	assert.ErrorContains(t, err, badArn1)
+	assert.ErrorContains(t, err, notFoundReason)
 	assert.ErrorContains(t, err, badArn2)
+	assert.ErrorContains(t, err, "task not found: "+badArn2)
 }
 
 func TestDescribeTasksNoFailures(t *testing.T) {
@@ -411,12 +367,95 @@ func TestDescribeTasksNoFailures(t *testing.T) {
 		Tasks: []types.Task{{
 			TaskArn:           aws.String(okArn),
 			TaskDefinitionArn: aws.String(taskDefArn),
+			Containers:        []types.Container{{Name: aws.String("app")}},
 		}},
-	}, nil)
+	}, nil).Once()
 
 	tasks, err := client.describeTasks(context.Background(), clusterName, []string{okArn})
 	assert.NoError(t, err)
 	assert.Len(t, tasks, 1)
+	mockClient.AssertExpectations(t)
+}
+
+// newTaskArn builds the ARN of task number i of a cluster, so batching
+// tests can generate any task count.
+func newTaskArn(cluster string, i int) string {
+	return fmt.Sprintf("arn:aws:ecs:ap-northeast-1:123456789012:task/%s/task-%03d", cluster, i)
+}
+
+func TestDescribeTasksBatchesOverBatchSize(t *testing.T) {
+	mockClient := new(MockECSClient)
+	client := newClientForTesting(mockClient, "ap-northeast-1")
+
+	clusterName := "test-cluster"
+	arns := make([]string, 150)
+	for i := range arns {
+		arns[i] = newTaskArn(clusterName, i)
+	}
+
+	newDescribedTasks := func(bat []string) []types.Task {
+		tasks := make([]types.Task, len(bat))
+		for i, arn := range bat {
+			tasks[i] = types.Task{
+				TaskArn:           aws.String(arn),
+				TaskDefinitionArn: aws.String("arn:aws:ecs:ap-northeast-1:123456789012:task-definition/test-task:1"),
+				Containers:        []types.Container{{Name: aws.String("app")}},
+			}
+		}
+		return tasks
+	}
+
+	// 150 tasks split into one full batch of 100 and one of 50.
+	firstBatch, secondBatch := arns[:100], arns[100:]
+	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
+		Tasks:   firstBatch,
+		Cluster: aws.String(clusterName),
+	}).Return(&ecs.DescribeTasksOutput{Tasks: newDescribedTasks(firstBatch)}, nil).Once()
+	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
+		Tasks:   secondBatch,
+		Cluster: aws.String(clusterName),
+	}).Return(&ecs.DescribeTasksOutput{Tasks: newDescribedTasks(secondBatch)}, nil).Once()
+
+	tasks, err := client.describeTasks(context.Background(), clusterName, arns)
+	assert.NoError(t, err)
+	assert.Len(t, tasks, 150)
+	mockClient.AssertExpectations(t)
+}
+
+func TestDescribeTasksAggregatesBatchFailures(t *testing.T) {
+	mockClient := new(MockECSClient)
+	client := newClientForTesting(mockClient, "ap-northeast-1")
+
+	clusterName := "test-cluster"
+	arns := make([]string, 150)
+	for i := range arns {
+		arns[i] = newTaskArn(clusterName, i)
+	}
+
+	// The first batch fails at the API level while the second succeeds.
+	// The error must be returned and the successful tasks kept.
+	firstBatch, secondBatch := arns[:100], arns[100:]
+	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
+		Tasks:   firstBatch,
+		Cluster: aws.String(clusterName),
+	}).Return((*ecs.DescribeTasksOutput)(nil), fmt.Errorf("describe failed: %w", errAccessDenied)).Once()
+	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
+		Tasks:   secondBatch,
+		Cluster: aws.String(clusterName),
+	}).Return(&ecs.DescribeTasksOutput{
+		Tasks: []types.Task{{
+			TaskArn:           aws.String(secondBatch[0]),
+			TaskDefinitionArn: aws.String("arn:aws:ecs:ap-northeast-1:123456789012:task-definition/test-task:1"),
+			Containers:        []types.Container{{Name: aws.String("app")}},
+		}},
+	}, nil).Once()
+
+	tasks, err := client.describeTasks(context.Background(), clusterName, arns)
+	assert.Len(t, tasks, 1, "tasks of the successful batch are kept")
+
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, errAccessDenied)
+	assert.ErrorContains(t, err, "failed to describe task batch")
 }
 
 func TestListTargetsPropagatesDescribeTaskFailure(t *testing.T) {
@@ -427,8 +466,8 @@ func TestListTargetsPropagatesDescribeTaskFailure(t *testing.T) {
 	serviceName := "test-service"
 	taskArn := "arn:aws:ecs:ap-northeast-1:123456789012:task/test-cluster/task-1"
 
-	// ListTargets lists the tasks once and describes each task. The
-	// describe failure must fail the whole service listing.
+	// ListTargets lists the tasks once and describes them in one batch.
+	// The describe failure must fail the whole service listing.
 	mockClient.On("ListTasks", mock.Anything, &ecs.ListTasksInput{
 		Cluster:     aws.String(clusterName),
 		ServiceName: aws.String(serviceName),
@@ -446,6 +485,7 @@ func TestListTargetsPropagatesDescribeTaskFailure(t *testing.T) {
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, errAccessDenied)
 	assert.ErrorContains(t, err, "failed to describe tasks")
+	mockClient.AssertExpectations(t)
 }
 
 func TestListTargetsAggregatesContainerFailures(t *testing.T) {
@@ -456,8 +496,7 @@ func TestListTargetsAggregatesContainerFailures(t *testing.T) {
 	serviceName := "test-service"
 	okTaskArn := "arn:aws:ecs:ap-northeast-1:123456789012:task/test-cluster/task-ok"
 	badTaskArn := "arn:aws:ecs:ap-northeast-1:123456789012:task/test-cluster/task-bad"
-	okTaskDef := "arn:aws:ecs:ap-northeast-1:123456789012:task-definition/ok:1"
-	badTaskDef := "arn:aws:ecs:ap-northeast-1:123456789012:task-definition/bad:1"
+	taskDefArn := "arn:aws:ecs:ap-northeast-1:123456789012:task-definition/test-task:1"
 
 	mockClient.On("ListTasks", mock.Anything, &ecs.ListTasksInput{
 		Cluster:     aws.String(clusterName),
@@ -466,42 +505,80 @@ func TestListTargetsAggregatesContainerFailures(t *testing.T) {
 	}).Return(&ecs.ListTasksOutput{
 		TaskArns: []string{okTaskArn, badTaskArn},
 	}, nil).Once()
+	// One batch describes both tasks; the container of the bad task has
+	// no name, which fails that task only.
 	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
-		Tasks:   []string{okTaskArn},
+		Tasks:   []string{okTaskArn, badTaskArn},
 		Cluster: aws.String(clusterName),
 	}).Return(&ecs.DescribeTasksOutput{
-		Tasks: []types.Task{{
-			TaskArn:           aws.String(okTaskArn),
-			TaskDefinitionArn: aws.String(okTaskDef),
-		}},
-	}, nil).Once()
-	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
-		Tasks:   []string{badTaskArn},
-		Cluster: aws.String(clusterName),
-	}).Return(&ecs.DescribeTasksOutput{
-		Tasks: []types.Task{{
-			TaskArn:           aws.String(badTaskArn),
-			TaskDefinitionArn: aws.String(badTaskDef),
-		}},
-	}, nil).Once()
-	mockClient.On("DescribeTaskDefinition", mock.Anything, &ecs.DescribeTaskDefinitionInput{
-		TaskDefinition: aws.String(okTaskDef),
-	}).Return(&ecs.DescribeTaskDefinitionOutput{
-		TaskDefinition: &types.TaskDefinition{
-			ContainerDefinitions: []types.ContainerDefinition{
-				{Name: aws.String("container-1")},
+		Tasks: []types.Task{
+			{
+				TaskArn:           aws.String(okTaskArn),
+				TaskDefinitionArn: aws.String(taskDefArn),
+				Containers:        []types.Container{{Name: aws.String("app")}},
+			},
+			{
+				TaskArn:           aws.String(badTaskArn),
+				TaskDefinitionArn: aws.String(taskDefArn),
+				Containers:        []types.Container{{Image: aws.String("nginx:1")}},
 			},
 		},
-	}, nil)
-	mockClient.On("DescribeTaskDefinition", mock.Anything, &ecs.DescribeTaskDefinitionInput{
-		TaskDefinition: aws.String(badTaskDef),
-	}).Return(&ecs.DescribeTaskDefinitionOutput{}, fmt.Errorf("describe failed: %w", errAccessDenied))
+	}, nil).Once()
 
 	targets, err := client.ListTargets(context.Background(), clusterName, serviceName)
 	assert.Nil(t, targets, "a single failing task must fail the whole service listing, not silently drop the task")
 	assert.Error(t, err)
-	assert.ErrorIs(t, err, errAccessDenied)
 	assert.ErrorContains(t, err, badTaskArn)
+	assert.ErrorContains(t, err, "container name is nil")
+	mockClient.AssertExpectations(t)
+}
+
+func TestListTargetsBatchesDescribeTasks(t *testing.T) {
+	mockClient := new(MockECSClient)
+	client := newClientForTesting(mockClient, "ap-northeast-1")
+
+	clusterName := "test-cluster"
+	serviceName := "test-service"
+	arns := make([]string, 150)
+	for i := range arns {
+		arns[i] = newTaskArn(clusterName, i)
+	}
+
+	newDescribedTasks := func(bat []string) []types.Task {
+		tasks := make([]types.Task, len(bat))
+		for i, arn := range bat {
+			tasks[i] = types.Task{
+				TaskArn:           aws.String(arn),
+				TaskDefinitionArn: aws.String("arn:aws:ecs:ap-northeast-1:123456789012:task-definition/test-task:1"),
+				Containers:        []types.Container{{Name: aws.String("app"), LastStatus: aws.String("RUNNING")}},
+			}
+		}
+		return tasks
+	}
+
+	// One ListTasks call, then 150 tasks split into batches of 100 and
+	// 50, with no DescribeTaskDefinition calls anywhere.
+	mockClient.On("ListTasks", mock.Anything, &ecs.ListTasksInput{
+		Cluster:     aws.String(clusterName),
+		ServiceName: aws.String(serviceName),
+		MaxResults:  aws.Int32(100),
+	}).Return(&ecs.ListTasksOutput{TaskArns: arns}, nil).Once()
+	firstBatch, secondBatch := arns[:100], arns[100:]
+	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
+		Tasks:   firstBatch,
+		Cluster: aws.String(clusterName),
+	}).Return(&ecs.DescribeTasksOutput{Tasks: newDescribedTasks(firstBatch)}, nil).Once()
+	mockClient.On("DescribeTasks", mock.Anything, &ecs.DescribeTasksInput{
+		Tasks:   secondBatch,
+		Cluster: aws.String(clusterName),
+	}).Return(&ecs.DescribeTasksOutput{Tasks: newDescribedTasks(secondBatch)}, nil).Once()
+
+	targets, err := client.ListTargets(context.Background(), clusterName, serviceName)
+	assert.NoError(t, err)
+	assert.Len(t, targets, 150)
+	assert.Equal(t, newTaskArn(clusterName, 149), targets[149].TaskArn)
+	assert.Equal(t, "RUNNING", targets[149].Status)
+	mockClient.AssertExpectations(t)
 }
 
 func TestExecuteCommandRequiresFields(t *testing.T) {

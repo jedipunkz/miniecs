@@ -37,27 +37,23 @@ func (b *benchClient) ListTasks(ctx context.Context, params *ecs.ListTasksInput,
 func (b *benchClient) DescribeTasks(ctx context.Context, params *ecs.DescribeTasksInput, optFns ...func(*ecs.Options)) (*ecs.DescribeTasksOutput, error) {
 	tasks := make([]types.Task, len(params.Tasks))
 	for i, arn := range params.Tasks {
+		containers := make([]types.Container, b.containerCount)
+		for j := range containers {
+			containers[j] = types.Container{
+				Name:       aws.String(fmt.Sprintf("container-%d", j)),
+				Image:      aws.String("nginx:latest"),
+				LastStatus: aws.String("RUNNING"),
+			}
+		}
 		tasks[i] = types.Task{
 			TaskArn:           aws.String(arn),
 			TaskDefinitionArn: aws.String(b.taskDefArn),
 			LastStatus:        aws.String("RUNNING"),
 			DesiredStatus:     aws.String("RUNNING"),
+			Containers:        containers,
 		}
 	}
 	return &ecs.DescribeTasksOutput{Tasks: tasks}, nil
-}
-
-func (b *benchClient) DescribeTaskDefinition(ctx context.Context, params *ecs.DescribeTaskDefinitionInput, optFns ...func(*ecs.Options)) (*ecs.DescribeTaskDefinitionOutput, error) {
-	containers := make([]types.ContainerDefinition, b.containerCount)
-	for i := range containers {
-		containers[i] = types.ContainerDefinition{
-			Name:  aws.String(fmt.Sprintf("container-%d", i)),
-			Image: aws.String("nginx:latest"),
-		}
-	}
-	return &ecs.DescribeTaskDefinitionOutput{
-		TaskDefinition: &types.TaskDefinition{ContainerDefinitions: containers},
-	}, nil
 }
 
 func (b *benchClient) ExecuteCommand(ctx context.Context, params *ecs.ExecuteCommandInput, optFns ...func(*ecs.Options)) (*ecs.ExecuteCommandOutput, error) {
@@ -123,17 +119,18 @@ func BenchmarkParseServiceARNs(b *testing.B) {
 	}
 }
 
-func BenchmarkParseContainerDefinitions(b *testing.B) {
-	definitions := make([]types.ContainerDefinition, 10)
-	for i := range definitions {
-		definitions[i] = types.ContainerDefinition{
-			Name:  aws.String(fmt.Sprintf("container-%d", i)),
-			Image: aws.String("nginx:latest"),
+func BenchmarkParseTaskContainers(b *testing.B) {
+	containers := make([]types.Container, 10)
+	for i := range containers {
+		containers[i] = types.Container{
+			Name:       aws.String(fmt.Sprintf("container-%d", i)),
+			Image:      aws.String("nginx:latest"),
+			LastStatus: aws.String("RUNNING"),
 		}
 	}
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := parseContainerDefinitions(definitions); err != nil {
+		if _, err := parseTaskContainers(containers); err != nil {
 			b.Fatal(err)
 		}
 	}
