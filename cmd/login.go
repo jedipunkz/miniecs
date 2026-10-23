@@ -4,25 +4,16 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go-v2/config"
 	myecs "github.com/jedipunkz/miniecs/internal/pkg/aws/ecs"
 	"github.com/ktr0731/go-fuzzyfinder"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
-type loginFlags struct {
-	region  string
-	cluster string
-	shell   string
-}
-
-var loginSetFlags loginFlags
-
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "login cluster, service",
-	Run:   runLoginCmd,
+	RunE:  runLoginCmd,
 }
 
 // ecsCommandExecutor is the subset of *myecs.Client that opens the
@@ -31,41 +22,40 @@ type ecsCommandExecutor interface {
 	ExecuteCommand(ctx context.Context, target myecs.Target, shell string) error
 }
 
-func runLoginCmd(cmd *cobra.Command, args []string) {
-	ctx := context.Background()
+// runLoginCmd fetches the targets, lets the user pick one and opens the
+// login shell in it.
+func runLoginCmd(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
 
-	ecsClient, err := initializeECSClient(ctx)
+	region, err := cmd.Flags().GetString("region")
 	if err != nil {
-		log.Fatal(err)
+		return err
+	}
+	cluster, err := cmd.Flags().GetString("cluster")
+	if err != nil {
+		return err
+	}
+	shellFlag, err := cmd.Flags().GetString("shell")
+	if err != nil {
+		return err
 	}
 
-	targets, err := fetchTargets(ctx, ecsClient, loginSetFlags.cluster)
+	ecsClient, err := initializeECSClient(ctx, region)
 	if err != nil {
-		log.Fatal(err)
+		return err
+	}
+
+	targets, err := fetchTargets(ctx, ecsClient, cluster)
+	if err != nil {
+		return err
 	}
 
 	selected, err := showTargetPicker(targets)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	if err := executeLogin(ctx, ecsClient, selected); err != nil {
-		log.Fatal(err)
-	}
-}
-
-func initializeECSClient(ctx context.Context) (*myecs.Client, error) {
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(loginSetFlags.region))
-	if err != nil {
-		return nil, fmt.Errorf("unable to load SDK config: %w", err)
-	}
-
-	ecsClient := myecs.NewClient(cfg, loginSetFlags.region)
-	if ecsClient == nil {
-		return nil, fmt.Errorf("failed to initialize ECS client")
-	}
-
-	return ecsClient, nil
+	return executeLogin(ctx, ecsClient, selected, shellFlag)
 }
 
 func showTargetPicker(targets []myecs.Target) (myecs.Target, error) {
@@ -104,8 +94,8 @@ func showTargetPicker(targets []myecs.Target) (myecs.Target, error) {
 	return targets[itemIndex], nil
 }
 
-func executeLogin(ctx context.Context, ecsClient ecsCommandExecutor, target myecs.Target) error {
-	shell := getShell()
+func executeLogin(ctx context.Context, ecsClient ecsCommandExecutor, target myecs.Target, shellFlag string) error {
+	shell := getShell(shellFlag)
 
 	log.WithFields(log.Fields{
 		"cluster":   target.Cluster,
@@ -117,22 +107,19 @@ func executeLogin(ctx context.Context, ecsClient ecsCommandExecutor, target myec
 	return ecsClient.ExecuteCommand(ctx, target, shell)
 }
 
-func getShell() string {
-	if loginSetFlags.shell != "" {
-		return loginSetFlags.shell
+// getShell returns the login shell: the --shell value when set, "sh"
+// otherwise.
+func getShell(shell string) string {
+	if shell != "" {
+		return shell
 	}
 	return "sh"
 }
 
 func init() {
 	rootCmd.AddCommand(loginCmd)
-	loginCmd.Flags().StringVarP(
-		&loginSetFlags.region, "region", "", "", "Region Name")
-	if err := loginCmd.MarkFlagRequired("region"); err != nil {
-		log.Fatal(err)
-	}
-	loginCmd.Flags().StringVarP(
-		&loginSetFlags.cluster, "cluster", "", "", "ECS Cluster Name")
-	loginCmd.Flags().StringVarP(
-		&loginSetFlags.shell, "shell", "", "", "Login Shell")
+	loginCmd.Flags().String(
+		"cluster", "", "ECS Cluster Name")
+	loginCmd.Flags().String(
+		"shell", "", "Login Shell")
 }

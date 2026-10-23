@@ -9,7 +9,7 @@ miniecs is a CLI tool that enables interactive login to ECS containers using fuz
 
 ## Requirements
 
-- Go 1.24.x or later
+- Go 1.26.x or later
 - [session-manager-plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
 
 ## Installation
@@ -33,7 +33,7 @@ go install github.com/jedipunkz/miniecs@latest
 
 The `login` command provides an interactive way to connect to ECS containers using fuzzy search.
 
-To log in to a container, run the `login` command. If no cluster is specified, miniecs will discover all available clusters in the specified region. The `region` parameter is mandatory.
+To log in to a container, run the `login` command. If no cluster is specified, miniecs will discover all available clusters in the region. The `region` parameter is optional; when omitted, miniecs uses the region from your AWS configuration (`AWS_REGION` or the shared config file).
 
 ```shell
 $ miniecs login --region <REGION_NAME>
@@ -49,7 +49,7 @@ $ miniecs login --region <REGION_NAME> --cluster <CLUSTER_NAME> --shell <SHELL>
 
 The `list` command displays a table of ECS resources including clusters, services, task definitions, and containers.
 
-To list all ECS resources in a region, run the `list` command. The `region` parameter is mandatory.
+To list all ECS resources in a region, run the `list` command. The `region` parameter is optional; when omitted, miniecs uses the region from your AWS configuration (`AWS_REGION` or the shared config file).
 
 ```shell
 $ miniecs list --region <REGION_NAME>

@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"context"
+	"fmt"
 	"os"
+	"os/signal"
 
 	"github.com/spf13/cobra"
 )
@@ -10,22 +13,33 @@ var osExit = os.Exit
 
 var rootCmd = &cobra.Command{
 	Use:   "miniecs",
-	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
+	Short: "List ECS resources and log in to containers through ECS Exec",
+	Long: `miniecs lists ECS clusters, services and containers, and opens an
+interactive shell in a container through ECS Exec.
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+Use "miniecs list" to show the containers of a region as a table and
+"miniecs login" to open a shell in one container.`,
+	SilenceErrors: true,
+	SilenceUsage:  true,
 }
 
+// Execute runs the CLI. The context is cancelled on Ctrl-C so in-flight
+// AWS API calls stop, and the command error is printed exactly once here
+// instead of at every call site.
 func Execute() {
-	err := rootCmd.Execute()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	err := rootCmd.ExecuteContext(ctx)
 	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
 		osExit(1)
 	}
 }
 
 func init() {
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	// --region is shared by the subcommands. It is optional: when it is
+	// empty the region of the AWS configuration is used.
+	rootCmd.PersistentFlags().String(
+		"region", "", "Region Name (defaults to the region of the AWS configuration)")
 }

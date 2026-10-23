@@ -42,20 +42,27 @@ func TestExecute(t *testing.T) {
 	})
 }
 
-func TestRootCmdFlags(t *testing.T) {
-	t.Run("toggle_flag_configuration", func(t *testing.T) {
-		toggleFlag := rootCmd.Flags().Lookup("toggle")
-		assert.NotNil(t, toggleFlag, "toggle flag should exist")
-		assert.Equal(t, "t", toggleFlag.Shorthand, "toggle flag shorthand should be 't'")
-		assert.Equal(t, "false", toggleFlag.DefValue, "toggle flag default value should be 'false'")
-		assert.Equal(t, "Help message for toggle", toggleFlag.Usage, "toggle flag usage message should be correct")
-	})
-}
-
 func TestRootCmdProperties(t *testing.T) {
 	t.Run("command_properties", func(t *testing.T) {
 		assert.Equal(t, "miniecs", rootCmd.Use, "command name should be correct")
-		assert.Equal(t, "A brief description of your application", rootCmd.Short, "short description should be correct")
-		assert.Contains(t, rootCmd.Long, "A longer description", "long description should be correct")
+		assert.Equal(t,
+			"List ECS resources and log in to containers through ECS Exec",
+			rootCmd.Short, "short description should be correct")
+		assert.Contains(t, rootCmd.Long, "ECS Exec", "long description should describe the tool")
+	})
+}
+
+func TestRegionFlag(t *testing.T) {
+	regionFlag := rootCmd.PersistentFlags().Lookup("region")
+	assert.NotNil(t, regionFlag, "region flag should be a persistent root flag")
+	assert.Equal(t, "", regionFlag.DefValue, "region flag should default to empty")
+
+	t.Run("subcommands_inherit_region_without_requiring_it", func(t *testing.T) {
+		for _, c := range []*cobra.Command{listCmd, loginCmd} {
+			inherited := c.InheritedFlags().Lookup("region")
+			assert.NotNil(t, inherited, "region flag should be inherited by %q", c.Name())
+			assert.Empty(t, inherited.Annotations["cobra_annotation_bash_completion_one_required_flag"],
+				"region flag should not be required for %q", c.Name())
+		}
 	})
 }
