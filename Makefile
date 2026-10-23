@@ -1,4 +1,4 @@
-.PHONY: build lint test check hooks
+.PHONY: build lint test check hooks bench
 
 build:
 	go build ./...
@@ -8,6 +8,9 @@ lint:
 
 test:
 	go test -race ./...
+
+bench:
+	go test -run '^$$' -bench . -benchmem ./...
 
 # Same gates as CI. Run before pushing.
 check: build lint test
