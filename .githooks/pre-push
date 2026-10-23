@@ -1,0 +1,4 @@
+#!/bin/sh
+# Enabled with `make hooks`. Do not bypass with --no-verify.
+set -eu
+exec make check
