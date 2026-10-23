@@ -46,9 +46,12 @@ type ECSClient interface {
 	ListServices(ctx context.Context, params *ecs.ListServicesInput, optFns ...func(*ecs.Options)) (*ecs.ListServicesOutput, error)
 	ListTasks(ctx context.Context, params *ecs.ListTasksInput, optFns ...func(*ecs.Options)) (*ecs.ListTasksOutput, error)
 	DescribeTasks(ctx context.Context, params *ecs.DescribeTasksInput, optFns ...func(*ecs.Options)) (*ecs.DescribeTasksOutput, error)
-	DescribeTaskDefinition(ctx context.Context, params *ecs.DescribeTaskDefinitionInput, optFns ...func(*ecs.Options)) (*ecs.DescribeTaskDefinitionOutput, error)
 	ExecuteCommand(ctx context.Context, params *ecs.ExecuteCommandInput, optFns ...func(*ecs.Options)) (*ecs.ExecuteCommandOutput, error)
 }
+
+// describeTaskBatchSize is the maximum number of task ARNs sent in one
+// DescribeTasks call, matching the ECS API limit.
+const describeTaskBatchSize = 100
 
 // Target is the flat per-container value the CLI consumes. One Target
 // describes exactly one container of one task, so callers never navigate
@@ -64,18 +67,19 @@ type Target struct {
 }
 
 // describedTask carries the task-level fields extracted from
-// DescribeTasks. Its containers are resolved separately per task
-// definition.
+// DescribeTasks, which also provides the running containers.
 type describedTask struct {
 	TaskArn        string
 	TaskDefinition string
-	LastStatus     string
+	Containers     []containerInfo
 }
 
-// containerInfo is one container definition entry of a task definition.
+// containerInfo is one running container of a described task, as
+// reported by DescribeTasks.
 type containerInfo struct {
-	Name  string
-	Image string
+	Name       string
+	Image      string
+	LastStatus string
 }
 
 // Client wraps the ECS API client and exposes the listing and execution
@@ -313,11 +317,12 @@ func (c *Client) listTaskArns(ctx context.Context, cluster, service string) ([]s
 	return taskArns, nil
 }
 
-// ListTargets lists every task of a service, describes each task and its
-// task definition, and returns one flat Target per container. Per-task
-// failures are aggregated with errors.Join and returned with no targets:
-// a partial list would silently omit tasks the user cannot see, so any
-// per-task failure is fatal for this service.
+// ListTargets lists the tasks of a service once, describes them in
+// batches, and returns one flat Target per running container, taken
+// from the DescribeTasks response. Per-task failures are aggregated
+// with errors.Join and returned with no targets: a partial list would
+// silently omit tasks the user cannot see, so any per-task failure is
+// fatal for this service.
 func (c *Client) ListTargets(ctx context.Context, cluster, service string) ([]Target, error) {
 	taskArns, err := c.listTaskArns(ctx, cluster, service)
 	if err != nil {
@@ -330,15 +335,8 @@ func (c *Client) ListTargets(ctx context.Context, cluster, service string) ([]Ta
 	}
 
 	var targets []Target
-	var containerErrs []error
 	for _, task := range tasks {
-		containers, err := c.listContainersForTask(ctx, task.TaskDefinition)
-		if err != nil {
-			containerErrs = append(containerErrs, fmt.Errorf("failed to list containers for task %s: %w", task.TaskArn, err))
-			continue
-		}
-
-		for _, container := range containers {
+		for _, container := range task.Containers {
 			targets = append(targets, Target{
 				Cluster:        cluster,
 				Service:        service,
@@ -346,101 +344,100 @@ func (c *Client) ListTargets(ctx context.Context, cluster, service string) ([]Ta
 				TaskDefinition: task.TaskDefinition,
 				Container:      container.Name,
 				Image:          container.Image,
-				Status:         task.LastStatus,
+				Status:         container.LastStatus,
 			})
 		}
-	}
-
-	if err := errors.Join(containerErrs...); err != nil {
-		return nil, err
 	}
 
 	return targets, nil
 }
 
-// describeTasks describes every listed task and keeps the ones that
-// succeed. A task that fails to describe is skipped so the listing stays
-// useful, but the failure is not swallowed: it is aggregated with
-// errors.Join and returned, so callers treat the run as failed with the
-// real causes instead of showing a silently incomplete list.
+// describeTasks describes every listed task in batches of up to
+// describeTaskBatchSize ARNs and keeps the tasks that succeed. A task
+// that fails to describe is skipped so the listing stays useful, but
+// the failure is not swallowed: it is aggregated with errors.Join and
+// returned, so callers treat the run as failed with the real causes
+// instead of showing a silently incomplete list.
 func (c *Client) describeTasks(ctx context.Context, cluster string, taskArns []string) ([]describedTask, error) {
 	var tasks []describedTask
-	var taskErrs []error
+	var errs []error
+	for start := 0; start < len(taskArns); start += describeTaskBatchSize {
+		end := min(start+describeTaskBatchSize, len(taskArns))
+		batchTasks, batchErrs := c.describeTaskBatch(ctx, cluster, taskArns[start:end])
+		tasks = append(tasks, batchTasks...)
+		errs = append(errs, batchErrs...)
+	}
+	return tasks, errors.Join(errs...)
+}
+
+// describeTaskBatch describes one batch of task ARNs and returns the
+// tasks that succeeded. Tasks the API reports as failed and tasks
+// missing from the response become errors so the caller can aggregate
+// them: the listing must not silently omit tasks.
+func (c *Client) describeTaskBatch(ctx context.Context, cluster string, taskArns []string) ([]describedTask, []error) {
+	output, err := c.client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
+		Tasks:   taskArns,
+		Cluster: aws.String(cluster),
+	})
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed to describe task batch: %w", err)}
+	}
+
+	described := make(map[string]*types.Task, len(output.Tasks))
+	for i := range output.Tasks {
+		task := &output.Tasks[i]
+		if task.TaskArn != nil {
+			described[*task.TaskArn] = task
+		}
+	}
+
+	var tasks []describedTask
+	var errs []error
+	for _, failure := range output.Failures {
+		errs = append(errs, taskFailureError(failure))
+	}
 	for _, taskArn := range taskArns {
-		task, err := c.describeTask(ctx, cluster, taskArn)
-		if err != nil {
-			taskErrs = append(taskErrs, fmt.Errorf("task %s: %w", taskArn, err))
+		task, ok := described[taskArn]
+		if !ok {
+			errs = append(errs, fmt.Errorf("task not found: %s", taskArn))
 			continue
 		}
-		if task != nil {
-			tasks = append(tasks, *task)
+		if task.TaskDefinitionArn == nil {
+			errs = append(errs, fmt.Errorf("task definition ARN is nil for task: %s", taskArn))
+			continue
 		}
+
+		containers, err := parseTaskContainers(task.Containers)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("task %s: %w", taskArn, err))
+			continue
+		}
+		tasks = append(tasks, describedTask{
+			TaskArn:        taskArn,
+			TaskDefinition: *task.TaskDefinitionArn,
+			Containers:     containers,
+		})
 	}
-	return tasks, errors.Join(taskErrs...)
+	return tasks, errs
 }
 
-func (c *Client) describeTask(ctx context.Context, cluster, taskArn string) (*describedTask, error) {
-	describeTasksInput := &ecs.DescribeTasksInput{
-		Tasks:   []string{taskArn},
-		Cluster: aws.String(cluster),
+// taskFailureError converts a DescribeTasks failure entry into an error
+// attributed to the task ARN.
+func taskFailureError(failure types.Failure) error {
+	reason := ""
+	if failure.Reason != nil {
+		reason = *failure.Reason
 	}
-	describeTasksOutput, err := c.client.DescribeTasks(ctx, describeTasksInput)
-	if err != nil {
-		return nil, fmt.Errorf("failed to describe task: %w", err)
-	}
-
-	if len(describeTasksOutput.Tasks) == 0 {
-		return nil, fmt.Errorf("task not found: %s", taskArn)
-	}
-
-	taskDefinitionArn := describeTasksOutput.Tasks[0].TaskDefinitionArn
-	if taskDefinitionArn == nil {
-		return nil, fmt.Errorf("task definition ARN is nil for task: %s", taskArn)
-	}
-
-	task := describeTasksOutput.Tasks[0]
-	lastStatus := ""
-	if task.LastStatus != nil {
-		lastStatus = *task.LastStatus
-	}
-
-	return &describedTask{
-		TaskArn:        taskArn,
-		TaskDefinition: *taskDefinitionArn,
-		LastStatus:     lastStatus,
-	}, nil
+	return fmt.Errorf("task %s: %s", aws.ToString(failure.Arn), reason)
 }
 
-// listContainersForTask resolves the container definitions of a task
-// definition through the DescribeTaskDefinition API.
-func (c *Client) listContainersForTask(ctx context.Context, taskDefinition string) ([]containerInfo, error) {
-	if taskDefinition == "" {
-		return nil, fmt.Errorf("task definition is required")
-	}
-
-	input := &ecs.DescribeTaskDefinitionInput{
-		TaskDefinition: aws.String(taskDefinition),
-	}
-
-	result, err := c.client.DescribeTaskDefinition(ctx, input)
-	if err != nil {
-		return nil, fmt.Errorf("failed to describe task definition: %w", err)
-	}
-
-	if result.TaskDefinition == nil {
-		return nil, fmt.Errorf("no task definition returned for: %s", taskDefinition)
-	}
-
-	containers, err := parseContainerDefinitions(result.TaskDefinition.ContainerDefinitions)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create containers: %w", err)
-	}
-	return containers, nil
-}
-
-func parseContainerDefinitions(containerDefinitions []types.ContainerDefinition) ([]containerInfo, error) {
-	var containers []containerInfo
-	for _, container := range containerDefinitions {
+// parseTaskContainers maps the containers of a described task to
+// containerInfo, rejecting a container without a name: the CLI lists
+// and enters containers by name, so a nameless one cannot be shown or
+// used.
+func parseTaskContainers(containers []types.Container) ([]containerInfo, error) {
+	parsed := make([]containerInfo, 0, len(containers))
+	for _, container := range containers {
 		if container.Name == nil {
 			return nil, fmt.Errorf("container name is nil")
 		}
@@ -448,12 +445,17 @@ func parseContainerDefinitions(containerDefinitions []types.ContainerDefinition)
 		if container.Image != nil {
 			image = *container.Image
 		}
-		containers = append(containers, containerInfo{
-			Name:  *container.Name,
-			Image: image,
+		status := ""
+		if container.LastStatus != nil {
+			status = *container.LastStatus
+		}
+		parsed = append(parsed, containerInfo{
+			Name:       *container.Name,
+			Image:      image,
+			LastStatus: status,
 		})
 	}
-	return containers, nil
+	return parsed, nil
 }
 
 func (c *Client) listClusterARNs(ctx context.Context) ([]string, error) {

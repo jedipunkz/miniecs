@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 )
 
 // The fuzz targets check invariants, not only the absence of panics.
@@ -69,6 +72,39 @@ func FuzzParseServiceARNs(f *testing.F) {
 		}
 		if !strings.HasSuffix(arn, name) {
 			t.Fatalf("name %q is not a suffix of %q", name, arn)
+		}
+	})
+}
+
+// parseTaskContainers feeds the CLI its container names, images and
+// statuses straight from DescribeTasks. Whatever the API returns, a
+// container without a name must be rejected and a valid one must keep
+// its fields verbatim (empty string for missing optionals).
+func FuzzParseTaskContainers(f *testing.F) {
+	f.Add("app", "nginx:1", "RUNNING")
+	f.Add("app", "", "")
+	f.Add("", "nginx:1", "")
+
+	f.Fuzz(func(t *testing.T, name, image, status string) {
+		// An empty fuzz name means "no name": the parse must reject it
+		// the same way it rejects a nil name.
+		container := types.Container{Image: aws.String(image), LastStatus: aws.String(status)}
+		if name != "" {
+			container.Name = aws.String(name)
+		}
+		parsed, err := parseTaskContainers([]types.Container{container})
+		if name == "" {
+			if err == nil {
+				t.Fatal("expected error for container without name")
+			}
+			return
+		}
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := containerInfo{Name: name, Image: image, LastStatus: status}
+		if parsed[0] != want {
+			t.Fatalf("parsed = %+v, want %+v", parsed[0], want)
 		}
 	})
 }
