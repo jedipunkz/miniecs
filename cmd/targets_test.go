@@ -30,9 +30,18 @@ type fakeTargetLister struct {
 	serviceErrByCluster map[string]error
 	targetErrByService  map[string]error
 
-	// targetDelay, when set, runs at the start of every ListTargets call
-	// outside mu, so tests can vary the goroutine interleaving.
+	// targetDelay, when set, runs inside the in-flight window of every
+	// ListTargets call outside mu, so tests can vary the goroutine
+	// interleaving.
 	targetDelay func(cluster, service string)
+
+	// targetGate, when > 0, makes every ListTargets call block on gate
+	// until that many calls are in flight; the call that reaches the
+	// threshold closes the gate and all of them proceed together. gate
+	// is created by the test, so reading it needs no lock.
+	targetGate int
+	gate       chan struct{}
+	gateOnce   sync.Once
 
 	mu sync.Mutex
 
@@ -69,15 +78,17 @@ func (f *fakeTargetLister) ListServices(ctx context.Context, cluster string) ([]
 
 func (f *fakeTargetLister) ListTargets(ctx context.Context, cluster, service string) ([]myecs.Target, error) {
 	// The call counts as in-flight for its whole body, including the
-	// delay, so concurrent calls that are sleeping together are all
-	// counted at the same time. The delay runs outside mu so sleeping
-	// goroutines do not serialize through the lock.
+	// delay and the gate wait, so concurrent calls that are sleeping or
+	// waiting together are all counted at the same time. The delay and
+	// the gate wait run outside mu so blocked goroutines do not
+	// serialize through the lock.
 	f.mu.Lock()
 	f.gotTargetCalls = append(f.gotTargetCalls, [2]string{cluster, service})
 	f.inFlight++
 	if f.inFlight > f.maxInFlight {
 		f.maxInFlight = f.inFlight
 	}
+	openGate := f.targetGate > 0 && f.inFlight >= f.targetGate
 	f.mu.Unlock()
 
 	defer func() {
@@ -85,6 +96,13 @@ func (f *fakeTargetLister) ListTargets(ctx context.Context, cluster, service str
 		f.inFlight--
 		f.mu.Unlock()
 	}()
+
+	if openGate {
+		f.gateOnce.Do(func() { close(f.gate) })
+	}
+	if f.gate != nil {
+		<-f.gate
+	}
 
 	if f.targetDelay != nil {
 		f.targetDelay(cluster, service)
@@ -358,7 +376,11 @@ func TestFetchTargetsTargetsOrderIsStable(t *testing.T) {
 
 // TestFetchTargetsBoundedConcurrency checks that the fan-out really runs
 // ListTargets calls in parallel and that the parallelism stays within
-// maxConcurrentFetches.
+// maxConcurrentFetches. Every ListTargets call blocks at a barrier that
+// opens once maxConcurrentFetches calls are in flight, so no wall-clock
+// timing is involved: the barrier can only open when the fan-out reaches
+// the limit, and the observed peak can only exceed the limit if the
+// errgroup limit is not enforced.
 func TestFetchTargetsBoundedConcurrency(t *testing.T) {
 	const serviceCount = 2 * maxConcurrentFetches
 	clusters := []string{"c1"}
@@ -373,23 +395,17 @@ func TestFetchTargetsBoundedConcurrency(t *testing.T) {
 	}
 
 	client := &fakeTargetLister{
-		clusters: clusters,
-		services: services,
-		targets:  targets,
-		// Each call takes long enough that the whole allowed fan-out is
-		// admitted before the first one returns.
-		targetDelay: func(cluster, service string) {
-			time.Sleep(2 * time.Millisecond)
-		},
+		clusters:   clusters,
+		services:   services,
+		targets:    targets,
+		targetGate: maxConcurrentFetches,
+		gate:       make(chan struct{}),
 	}
 
 	got, err := fetchTargets(context.Background(), client, "")
 
 	assert.NoError(t, err)
 	assert.Len(t, got, serviceCount)
-	// The first allowed fan-out is admitted before the first call
-	// returns (each sleeps 2 ms), so exactly maxConcurrentFetches calls
-	// ran at the same time, and never more.
 	assert.Equal(t, maxConcurrentFetches, client.maxConcurrentTargets())
 }
 
