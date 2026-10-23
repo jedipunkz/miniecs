@@ -15,6 +15,23 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// sessionManagerPluginName is the fixed binary executed for ECS Exec
+// sessions. It stays constant: the executable must never be chosen from
+// user input, flags or AWS responses.
+const sessionManagerPluginName = "session-manager-plugin"
+
+// ssmPluginInstallDocsURL points to the AWS install instructions shown
+// when the plugin is missing, so the failure is actionable.
+const ssmPluginInstallDocsURL = "https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-plugin.html"
+
+// ssmEndpointURLEnvName mirrors the service-level endpoint override of
+// the AWS SDKs (AWS_ENDPOINT_URL_<SERVICE_ID>).
+const ssmEndpointURLEnvName = "AWS_ENDPOINT_URL_SSM"
+
+// globalEndpointURLEnvName is the SDK-wide endpoint override that applies
+// to all services, including SSM.
+const globalEndpointURLEnvName = "AWS_ENDPOINT_URL"
+
 type ECSExecRunner interface {
 	RunCommand(cmd *exec.Cmd) error
 }
@@ -98,6 +115,13 @@ func (e *ECSResource) ExecuteCommand(input ecs.ExecuteCommandInput) error {
 		return fmt.Errorf("ECS client is not initialized")
 	}
 
+	// Preflight before the ExecuteCommand API call: creating a session
+	// that the user cannot start leaves an unusable session behind.
+	if _, err := exec.LookPath(sessionManagerPluginName); err != nil {
+		return fmt.Errorf("%s not found in PATH: install it following %s: %w",
+			sessionManagerPluginName, ssmPluginInstallDocsURL, err)
+	}
+
 	ctx := context.TODO()
 	preparedInput := e.buildExecuteCommandInput(input)
 
@@ -141,16 +165,14 @@ func (e *ECSResource) buildSSMTargetJSON(target string) ([]byte, error) {
 }
 
 func (e *ECSResource) buildSessionManagerCommand(sessionInfo, targetJSON []byte) *exec.Cmd {
-	ssmEndpoint := "https://ssm." + e.Region + ".amazonaws.com"
-
 	cmd := exec.Command(
-		"session-manager-plugin",
+		sessionManagerPluginName,
 		string(sessionInfo),
 		e.Region,
 		"StartSession",
 		"",
 		string(targetJSON),
-		ssmEndpoint,
+		resolveSSMEndpoint(e.Region),
 	)
 
 	cmd.Env = os.Environ()
@@ -159,6 +181,38 @@ func (e *ECSResource) buildSessionManagerCommand(sessionInfo, targetJSON []byte)
 	cmd.Stdin = os.Stdin
 
 	return cmd
+}
+
+// resolveSSMEndpoint returns the SSM endpoint that session-manager-plugin
+// connects to. It honors the SDK endpoint-overrides first (the
+// service-level AWS_ENDPOINT_URL_SSM wins over the global AWS_ENDPOINT_URL,
+// mirroring SDK precedence) and falls back to deriving the host from the
+// region's partition DNS suffix.
+//
+// The full SDK endpoint resolver data lives in an internal SDK module
+// (github.com/aws/aws-sdk-go-v2/internal/endpoints/v2), which cannot be
+// imported outside the SDK; partition suffix matching is the smallest
+// approach that fixes China regions, while FIPS / dual-stack / custom
+// endpoints stay covered by the overrides above.
+func resolveSSMEndpoint(region string) string {
+	if endpoint := os.Getenv(ssmEndpointURLEnvName); endpoint != "" {
+		return endpoint
+	}
+	if endpoint := os.Getenv(globalEndpointURLEnvName); endpoint != "" {
+		return endpoint
+	}
+	return fmt.Sprintf("https://ssm.%s.%s", region, ssmHostSuffix(region))
+}
+
+// ssmHostSuffix returns the DNS suffix shared by SSM hosts in the
+// region's partition.
+func ssmHostSuffix(region string) string {
+	switch {
+	case strings.HasPrefix(region, "cn-"):
+		return "amazonaws.com.cn"
+	default:
+		return "amazonaws.com"
+	}
 }
 
 func (e *ECSResource) ListClusters(ctx context.Context) error {
