@@ -14,10 +14,19 @@ on:
           - patch
         default: patch
 
+permissions:
+  contents: read
+
 jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    # Only this job may push tags/releases and mint OIDC tokens for
+    # build provenance.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout Sources
         uses: actions/checkout@v7
@@ -45,3 +54,10 @@ jobs:
           distribution: goreleaser
           version: latest
           args: release --clean --config .goreleaser.yml
+
+      # Verify a downloaded archive with:
+      #   gh attestation verify <archive> --repo jedipunkz/miniecs
+      - name: Attest Build Provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/*.tar.gz
