@@ -35,3 +35,14 @@ linters:
           deny:
             - pkg: github.com/aws/aws-sdk-go/
               desc: use github.com/aws/aws-sdk-go-v2 instead of the v1 SDK
+  exclusions:
+    rules:
+      # G302 flags the test helper that chmod(2)s a written file to
+      # 0o755. The ECS Exec tests must provide an executable named
+      # session-manager-plugin on PATH so exec.LookPath finds it; the
+      # fake is never executed (tests replace the runner), so the
+      # permissive mode is a false positive.
+      - path: _test\.go
+        linters:
+          - gosec
+        text: G302
