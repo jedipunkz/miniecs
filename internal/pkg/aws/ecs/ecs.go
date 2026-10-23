@@ -161,13 +161,28 @@ func (e *ECSResource) buildSessionManagerCommand(sessionInfo, targetJSON []byte)
 	return cmd
 }
 
+func (e *ECSResource) listClusterARNs(ctx context.Context) ([]string, error) {
+	paginator := ecs.NewListClustersPaginator(e.client, &ecs.ListClustersInput{
+		MaxResults: aws.Int32(100),
+	})
+	var clusterArns []string
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list clusters: %w", err)
+		}
+		clusterArns = append(clusterArns, page.ClusterArns...)
+	}
+	return clusterArns, nil
+}
+
 func (e *ECSResource) ListClusters(ctx context.Context) error {
-	resultClusters, err := e.client.ListClusters(ctx, &ecs.ListClustersInput{})
+	clusterArns, err := e.listClusterARNs(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to list clusters: %w", err)
+		return err
 	}
 
-	clusters, err := e.parseClusterARNs(resultClusters.ClusterArns)
+	clusters, err := e.parseClusterARNs(clusterArns)
 	if err != nil {
 		return fmt.Errorf("failed to create clusters: %w", err)
 	}
@@ -195,14 +210,29 @@ func (e *ECSResource) parseClusterARNs(clusterArns []string) ([]ECSCluster, erro
 	return clusters, nil
 }
 
+func (e *ECSResource) listServiceARNs(ctx context.Context, cluster string) ([]string, error) {
+	paginator := ecs.NewListServicesPaginator(e.client, &ecs.ListServicesInput{
+		Cluster:    aws.String(cluster),
+		MaxResults: aws.Int32(100),
+	})
+	var serviceArns []string
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list services: %w", err)
+		}
+		serviceArns = append(serviceArns, page.ServiceArns...)
+	}
+	return serviceArns, nil
+}
+
 func (e *ECSResource) ListServices(ctx context.Context, cluster string) error {
-	inputService := &ecs.ListServicesInput{Cluster: aws.String(cluster)}
-	resultServices, err := e.client.ListServices(ctx, inputService)
+	serviceArns, err := e.listServiceARNs(ctx, cluster)
 	if err != nil {
-		return fmt.Errorf("failed to list services: %w", err)
+		return err
 	}
 
-	services, err := e.parseServiceARNs(resultServices.ServiceArns, cluster)
+	services, err := e.parseServiceARNs(serviceArns, cluster)
 	if err != nil {
 		return fmt.Errorf("failed to create services: %w", err)
 	}
@@ -236,17 +266,32 @@ func (e *ECSResource) parseServiceARNs(serviceArns []string, clusterName string)
 	return services, nil
 }
 
-func (e *ECSResource) GetTasks(ctx context.Context, cluster, service string) error {
-	inputTask := &ecs.ListTasksInput{
+// listTaskArns returns the task ARNs of a service, following ListTasks
+// pagination until no NextToken is returned.
+func (e *ECSResource) listTaskArns(ctx context.Context, cluster, service string) ([]string, error) {
+	paginator := ecs.NewListTasksPaginator(e.client, &ecs.ListTasksInput{
 		Cluster:     aws.String(cluster),
 		ServiceName: aws.String(service),
+		MaxResults:  aws.Int32(100),
+	})
+	var taskArns []string
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list tasks: %w", err)
+		}
+		taskArns = append(taskArns, page.TaskArns...)
 	}
-	resultTasks, err := e.client.ListTasks(ctx, inputTask)
+	return taskArns, nil
+}
+
+func (e *ECSResource) GetTasks(ctx context.Context, cluster, service string) error {
+	taskArns, err := e.listTaskArns(ctx, cluster, service)
 	if err != nil {
-		return fmt.Errorf("failed to list tasks: %w", err)
+		return err
 	}
 
-	_, err = e.describeTasks(ctx, cluster, resultTasks.TaskArns)
+	_, err = e.describeTasks(ctx, cluster, taskArns)
 	if err != nil {
 		return err
 	}
@@ -407,16 +452,12 @@ func (e *ECSResource) GetServiceResources(ctx context.Context, cluster ECSCluste
 	}
 
 	// Get all tasks for this service
-	inputTask := &ecs.ListTasksInput{
-		Cluster:     aws.String(cluster.ClusterName),
-		ServiceName: aws.String(service.ServiceName),
-	}
-	resultTasks, err := e.client.ListTasks(ctx, inputTask)
+	taskArns, err := e.listTaskArns(ctx, cluster.ClusterName, service.ServiceName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list tasks: %w", err)
+		return nil, err
 	}
 
-	tasks, err := e.describeTasks(ctx, cluster.ClusterName, resultTasks.TaskArns)
+	tasks, err := e.describeTasks(ctx, cluster.ClusterName, taskArns)
 	if err != nil {
 		return nil, fmt.Errorf("failed to describe tasks: %w", err)
 	}
