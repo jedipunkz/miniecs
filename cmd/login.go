@@ -26,6 +26,14 @@ var loginCmd = &cobra.Command{
 	Run:   runLoginCmd,
 }
 
+// loginECSClient is the subset of *myecs.ECSResource that the login flow
+// uses. Defining it here keeps the resource list logic testable with a
+// cmd-local fake instead of a real AWS client.
+type loginECSClient interface {
+	ListClusters(ctx context.Context) error
+	GetClusterResources(ctx context.Context, cluster myecs.ECSCluster) ([]myecs.ECSResource, error)
+}
+
 func runLoginCmd(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
 
@@ -34,7 +42,11 @@ func runLoginCmd(cmd *cobra.Command, args []string) {
 		log.Fatal(err)
 	}
 
-	ecsResources, err := fetchAllECSResources(ctx, ecsClient)
+	if err := ecsClient.ListClusters(ctx); err != nil {
+		log.Fatal(err)
+	}
+
+	ecsResources, err := fetchAllECSResources(ctx, ecsClient, ecsClient.Clusters)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -63,14 +75,14 @@ func initializeECSClient(ctx context.Context) (*myecs.ECSResource, error) {
 	return ecsClient, nil
 }
 
-func fetchAllECSResources(ctx context.Context, ecsClient *myecs.ECSResource) ([]myecs.ECSResource, error) {
-	var ecsResources []myecs.ECSResource
-
-	if err := ecsClient.ListClusters(ctx); err != nil {
-		return nil, fmt.Errorf("failed to list clusters: %w", err)
+func fetchAllECSResources(ctx context.Context, ecsClient loginECSClient, allClusters []myecs.ECSCluster) ([]myecs.ECSResource, error) {
+	targetClusters, err := selectTargetClusters(allClusters, loginSetFlags.cluster)
+	if err != nil {
+		return nil, err
 	}
 
-	for _, cluster := range ecsClient.Clusters {
+	var ecsResources []myecs.ECSResource
+	for _, cluster := range targetClusters {
 		resources, err := ecsClient.GetClusterResources(ctx, cluster)
 		if err != nil {
 			return nil, err
@@ -79,6 +91,23 @@ func fetchAllECSResources(ctx context.Context, ecsClient *myecs.ECSResource) ([]
 	}
 
 	return ecsResources, nil
+}
+
+// selectTargetClusters returns the clusters to fetch resources for. With an
+// empty name it returns all clusters; otherwise it returns only the named
+// cluster and fails when that cluster does not exist.
+func selectTargetClusters(allClusters []myecs.ECSCluster, name string) ([]myecs.ECSCluster, error) {
+	if name == "" {
+		return allClusters, nil
+	}
+
+	for _, cluster := range allClusters {
+		if cluster.ClusterName == name {
+			return []myecs.ECSCluster{cluster}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("cluster %q not found", name)
 }
 
 type selectableItem struct {
