@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	myecs "github.com/jedipunkz/miniecs/internal/pkg/aws/ecs"
@@ -207,7 +208,10 @@ func executeLogin(ecsClient *myecs.ECSResource, selectedResources []myecs.ECSRes
 		return fmt.Errorf("no resource selected")
 	}
 	selectedResource := selectedResources[0]
-	commandInput := createExecuteCommandInput(selectedResource)
+	commandInput, err := createExecuteCommandInput(selectedResource)
+	if err != nil {
+		return fmt.Errorf("failed to create execute command input: %w", err)
+	}
 
 	log.WithFields(log.Fields{
 		"cluster":   *commandInput.Cluster,
@@ -219,17 +223,20 @@ func executeLogin(ecsClient *myecs.ECSResource, selectedResources []myecs.ECSRes
 	return ecsClient.ExecuteCommand(commandInput)
 }
 
-func createExecuteCommandInput(resource myecs.ECSResource) ecs.ExecuteCommandInput {
+func createExecuteCommandInput(resource myecs.ECSResource) (ecs.ExecuteCommandInput, error) {
 	shell := getShell()
-	containerName, taskArn := extractTaskAndContainer(resource)
+	containerName, taskArn, err := extractTaskAndContainer(resource)
+	if err != nil {
+		return ecs.ExecuteCommandInput{}, fmt.Errorf("failed to extract task and container: %w", err)
+	}
 	clusterName := resource.Clusters[0].ClusterName
 
 	return ecs.ExecuteCommandInput{
-		Cluster:   &clusterName,
-		Container: &containerName,
-		Task:      &taskArn,
-		Command:   &shell,
-	}
+		Cluster:   aws.String(clusterName),
+		Container: aws.String(containerName),
+		Task:      aws.String(taskArn),
+		Command:   aws.String(shell),
+	}, nil
 }
 
 func getShell() string {
@@ -239,29 +246,40 @@ func getShell() string {
 	return "sh"
 }
 
-func extractTaskAndContainer(resource myecs.ECSResource) (containerName, taskArn string) {
+// extractTaskAndContainer returns the first task and its first container
+// from the selected resource. Missing data is an error here: the empty
+// strings would otherwise be sent to the ECS API (ExecuteCommand) instead
+// of failing before the call.
+func extractTaskAndContainer(resource myecs.ECSResource) (containerName, taskArn string, err error) {
 	if len(resource.Clusters) == 0 {
-		return "", ""
+		return "", "", fmt.Errorf("resource has no cluster information")
 	}
 
 	services := resource.Clusters[0].Services
 	if len(services) == 0 {
-		return "", ""
+		return "", "", fmt.Errorf("resource has no service information")
 	}
 
 	tasks := services[0].Tasks
 	if len(tasks) == 0 {
-		return "", ""
+		return "", "", fmt.Errorf("resource has no task information")
 	}
 
 	task := tasks[0]
+	if task.TaskArn == "" {
+		return "", "", fmt.Errorf("task has no task ARN")
+	}
 	taskArn = task.TaskArn
 
-	if len(task.Containers) > 0 {
-		containerName = task.Containers[0].ContainerName
+	if len(task.Containers) == 0 {
+		return "", "", fmt.Errorf("task %s has no containers", task.TaskArn)
 	}
+	if task.Containers[0].ContainerName == "" {
+		return "", "", fmt.Errorf("task %s has no container name", task.TaskArn)
+	}
+	containerName = task.Containers[0].ContainerName
 
-	return containerName, taskArn
+	return containerName, taskArn, nil
 }
 
 func init() {
