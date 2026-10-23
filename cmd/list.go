@@ -2,46 +2,63 @@ package cmd
 
 import (
 	"context"
+	"io"
 	"os"
 	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/config"
 	myecs "github.com/jedipunkz/miniecs/internal/pkg/aws/ecs"
 	"github.com/olekukonko/tablewriter"
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
-
-var listSetFlags struct {
-	region  string
-	cluster string
-}
 
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "list clusters, services",
-	Run:   runlistCmd,
+	RunE:  runListCmd,
 }
 
-func runlistCmd(cmd *cobra.Command, args []string) {
-	ctx := context.Background()
+// runListCmd fetches the targets and prints them as a table. With the
+// --cluster flag set only that cluster is fetched.
+func runListCmd(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
 
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(listSetFlags.region))
+	region, err := cmd.Flags().GetString("region")
 	if err != nil {
-		log.Fatalf("unable to load SDK config, %v", err)
+		return err
 	}
-
-	ecsClient := myecs.NewClient(cfg, listSetFlags.region)
-	if ecsClient == nil {
-		log.Fatal("failed to initialize ECS client")
-	}
-
-	rows, err := listECSTable(ctx, ecsClient)
+	cluster, err := cmd.Flags().GetString("cluster")
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	table := tablewriter.NewTable(os.Stdout,
+	ecsClient, err := initializeECSClient(ctx, region)
+	if err != nil {
+		return err
+	}
+
+	rows, err := listECSTable(ctx, ecsClient, cluster)
+	if err != nil {
+		return err
+	}
+
+	return writeECSRows(os.Stdout, rows)
+}
+
+// listECSTable fetches the flat targets of the selected clusters and
+// returns the table rows for them.
+func listECSTable(ctx context.Context, ecsClient ecsTargetLister, cluster string) ([][]string, error) {
+	targets, err := fetchTargets(ctx, ecsClient, cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	return buildECSRows(targets), nil
+}
+
+// writeECSRows renders the table rows to the writer. One row describes
+// exactly one container target.
+func writeECSRows(w io.Writer, rows [][]string) error {
+	table := tablewriter.NewTable(w,
 		tablewriter.WithHeader([]string{
 			"Cluster",
 			"Service",
@@ -49,23 +66,10 @@ func runlistCmd(cmd *cobra.Command, args []string) {
 			"Container"}))
 	for _, row := range rows {
 		if err := table.Append(row); err != nil {
-			log.Fatal(err)
+			return err
 		}
 	}
-	if err := table.Render(); err != nil {
-		log.Fatal(err)
-	}
-}
-
-// listECSTable fetches the flat targets of the selected clusters and
-// renders the table rows for them.
-func listECSTable(ctx context.Context, ecsClient ecsTargetLister) ([][]string, error) {
-	targets, err := fetchTargets(ctx, ecsClient, listSetFlags.cluster)
-	if err != nil {
-		return nil, err
-	}
-
-	return buildECSRows(targets), nil
+	return table.Render()
 }
 
 // buildECSRows renders the table rows for the flat targets. One target
@@ -103,11 +107,6 @@ func shortenTaskDefArn(taskDefinition string) string {
 
 func init() {
 	rootCmd.AddCommand(listCmd)
-	listCmd.Flags().StringVarP(
-		&listSetFlags.region, "region", "", "", "Region Name")
-	if err := listCmd.MarkFlagRequired("region"); err != nil {
-		log.Fatal(err)
-	}
-	listCmd.Flags().StringVarP(
-		&listSetFlags.cluster, "cluster", "", "", "ECS Cluster Name")
+	listCmd.Flags().String(
+		"cluster", "", "ECS Cluster Name")
 }

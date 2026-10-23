@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -73,10 +74,7 @@ func TestListECSTable(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			listSetFlags.cluster = tt.clusterFlag
-			defer func() { listSetFlags.cluster = "" }()
-
-			rows, err := listECSTable(context.Background(), tt.client)
+			rows, err := listECSTable(context.Background(), tt.client, tt.clusterFlag)
 
 			if tt.wantErr != "" {
 				assert.EqualError(t, err, tt.wantErr)
@@ -144,6 +142,38 @@ func TestBuildECSRows(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.wantRows, buildECSRows(tt.targets))
+		})
+	}
+}
+
+func TestWriteECSRows(t *testing.T) {
+	tests := []struct {
+		name         string
+		rows         [][]string
+		wantContents []string
+	}{
+		{
+			name:         "header and one row per container target",
+			rows:         [][]string{{"prod", "api", "api:42", "app"}},
+			wantContents: []string{"Cluster", "Service", "Task Definition", "Container", "prod", "api", "api:42", "app"},
+		},
+		{
+			name:         "no rows still renders the header",
+			rows:         nil,
+			wantContents: []string{"Cluster", "Service", "Task Definition", "Container"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var output strings.Builder
+
+			assert.NoError(t, writeECSRows(&output, tt.rows))
+
+			rendered := strings.ToLower(output.String())
+			for _, want := range tt.wantContents {
+				assert.Contains(t, rendered, strings.ToLower(want))
+			}
 		})
 	}
 }

@@ -28,13 +28,9 @@ func TestGetShell(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			loginSetFlags.shell = tt.shell
-			defer func() { loginSetFlags.shell = "" }()
-
-			assert.Equal(t, tt.expected, getShell())
+			assert.Equal(t, tt.expected, getShell(tt.shell))
 		})
 	}
-	loginSetFlags.shell = ""
 }
 
 // fakeCommandExecutor records the ExecuteCommand call so tests can assert
@@ -52,21 +48,39 @@ func (f *fakeCommandExecutor) ExecuteCommand(ctx context.Context, target myecs.T
 }
 
 func TestExecuteLoginPassesTargetAndShell(t *testing.T) {
-	loginSetFlags.shell = "bash"
-	defer func() { loginSetFlags.shell = "" }()
-
-	runner := &fakeCommandExecutor{}
-	target := myecs.Target{
-		Cluster:   "test-cluster",
-		TaskArn:   "arn:aws:ecs:us-east-1:123456789012:task/test-task",
-		Container: "test-container",
+	tests := []struct {
+		name      string
+		shellFlag string
+		wantShell string
+	}{
+		{
+			name:      "shell flag is passed through",
+			shellFlag: "bash",
+			wantShell: "bash",
+		},
+		{
+			name:      "empty flag uses the default shell",
+			shellFlag: "",
+			wantShell: "sh",
+		},
 	}
 
-	err := executeLogin(context.Background(), runner, target)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &fakeCommandExecutor{}
+			target := myecs.Target{
+				Cluster:   "test-cluster",
+				TaskArn:   "arn:aws:ecs:us-east-1:123456789012:task/test-task",
+				Container: "test-container",
+			}
 
-	assert.NoError(t, err)
-	assert.Equal(t, target, runner.gotTarget)
-	assert.Equal(t, "bash", runner.gotShell)
+			err := executeLogin(context.Background(), runner, target, tt.shellFlag)
+
+			assert.NoError(t, err)
+			assert.Equal(t, target, runner.gotTarget)
+			assert.Equal(t, tt.wantShell, runner.gotShell)
+		})
+	}
 }
 
 func TestExecuteLoginPropagatesError(t *testing.T) {
@@ -76,7 +90,7 @@ func TestExecuteLoginPropagatesError(t *testing.T) {
 		Cluster:   "cluster-1",
 		TaskArn:   "task-1",
 		Container: "container-1",
-	})
+	}, "sh")
 
 	assert.ErrorIs(t, err, assert.AnError)
 }
