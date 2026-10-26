@@ -36,7 +36,7 @@ jobs:
           fetch-depth: 0
 
       - name: Bump-up Semantic Version
-        uses: kyoh86/git-vertag-action@dc7d9bed0695ed9e0f25c88cc845095ae1bf3606 # v1.1.3
+        uses: kyoh86/git-vertag-action@37f026259ba0004fddbe0852ba9b88812afc5e75 # v1.1.4
         with:
           # method: "major", "minor" or "patch" to update tag with semver
           method: "${{ github.event.inputs.method }}"
