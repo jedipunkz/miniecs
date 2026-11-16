@@ -5,7 +5,7 @@ go 1.26.10
 require (
 	github.com/aws/aws-sdk-go-v2 v1.48.0
 	github.com/aws/aws-sdk-go-v2/config v1.33.15
-	github.com/aws/aws-sdk-go-v2/service/ecs v1.104.1
+	github.com/aws/aws-sdk-go-v2/service/ecs v1.105.1
 	github.com/ktr0731/go-fuzzyfinder v0.9.0
 	github.com/olekukonko/tablewriter v1.1.5
 	github.com/sirupsen/logrus v1.10.2
@@ -17,8 +17,8 @@ require (
 require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.15 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.7 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.10 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.10 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.12 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.12 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.10 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.24 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.10 // indirect
